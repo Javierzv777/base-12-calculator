@@ -15,6 +15,11 @@ use std::collections::HashMap;
 pub enum EvalError {
     DivisionByZero,
     NegativeExponent,
+    /// The exponent of `^` is not a non-negative integer (e.g. `2^1;6`).
+    NonIntegerExponent,
+    /// The exponent of `^` is a non-negative integer but exceeds the
+    /// practical bound the REPL is willing to compute (e.g. `2^2000`).
+    ExponentTooLarge,
     UnknownFunction(String),
     WrongArity { expected: usize, got: usize },
 }
@@ -24,6 +29,10 @@ impl std::fmt::Display for EvalError {
         match self {
             EvalError::DivisionByZero => write!(f, "division by zero"),
             EvalError::NegativeExponent => write!(f, "negative exponents are not supported"),
+            EvalError::NonIntegerExponent => {
+                write!(f, "non-integer exponents are not supported")
+            }
+            EvalError::ExponentTooLarge => write!(f, "exponent is too large"),
             EvalError::UnknownFunction(name) => write!(f, "unknown function '{}'", name),
             EvalError::WrongArity { expected, got } => {
                 write!(f, "wrong number of arguments: expected {}, got {}", expected, got)
@@ -124,7 +133,7 @@ pub fn evaluate<G: DozGates>(g: &G, expr: &Expr) -> Result<DzFixed, EvalError> {
             // v1 supports non-negative integer exponents only (PLAN.md
             // Section 6 lists `^` in the initial operator set without
             // requiring fractional/negative exponents yet).
-            let exponent = dzfixed_to_u32_exponent(&exp_v);
+            let exponent = dzfixed_to_u32_exponent(g, &exp_v)?;
             Ok(base_v.pow(g, exponent))
         }
     }
@@ -150,7 +159,7 @@ pub fn evaluate_rational<G: DozGates>(g: &G, expr: &Expr) -> Result<DzRational, 
             if exp_v.is_negative() {
                 return Err(EvalError::NegativeExponent);
             }
-            let exponent = rational_to_u32_exponent(g, &exp_v);
+            let exponent = rational_to_u32_exponent(g, &exp_v)?;
             Ok(base_v.pow(g, exponent)?)
         }
     }
@@ -167,38 +176,115 @@ pub fn evaluate_dfp<G: DozGates>(g: &G, expr: &Expr) -> Result<DzFloat, EvalErro
     Ok(DzFloat::from_dzfixed(g, &approx))
 }
 
-fn rational_to_u32_exponent<G: DozGates>(g: &G, v: &DzRational) -> u32 {
+/// Extract a small non-negative integer exponent from a `DzRational` by
+/// counting upward from zero and gate-comparing against `v`, rather than
+/// reading the value as a native integer (PLAN.md purity rule).
+///
+/// Bounded by `MAX_EXPONENT` to keep the REPL responsive. Distinguishes two
+/// failure modes: if the running count ever overshoots `v` without ever
+/// hitting it exactly, `v` cannot be a non-negative integer at all (e.g. a
+/// fractional exponent like `1;6`); if the count reaches `MAX_EXPONENT`
+/// while still short of `v`, `v` is a valid but impractically large integer.
+fn rational_to_u32_exponent<G: DozGates>(g: &G, v: &DzRational) -> Result<u32, EvalError> {
     const MAX_EXPONENT: u32 = 1000;
     let mut n: u32 = 0;
     let mut probe = DzRational::zero();
     let one = DzRational::from_int(dz_int::Dz::from_magnitude(false, vec![dz_gates::Digit::ONE]));
-    while n < MAX_EXPONENT {
-        if probe.compare(g, v) == std::cmp::Ordering::Equal {
-            return n;
+    loop {
+        match probe.compare(g, v) {
+            std::cmp::Ordering::Equal => return Ok(n),
+            std::cmp::Ordering::Greater => return Err(EvalError::NonIntegerExponent),
+            std::cmp::Ordering::Less => {}
+        }
+        if n == MAX_EXPONENT {
+            return Err(EvalError::ExponentTooLarge);
         }
         probe = probe.add(g, &one).expect("adding by one never divides by zero");
         n += 1;
     }
-    MAX_EXPONENT
 }
 
 /// Extract a small non-negative exponent from a `DzFixed` known to be an
 /// integer (`scale == 0`) with a modest value, by repeatedly testing
 /// against `Dz` values built from `DzFixed::pow`'s own loop -- i.e., we
 /// count upward, gate-comparing, rather than reading the magnitude as a
-/// native integer. Bounded to keep the REPL responsive.
-fn dzfixed_to_u32_exponent(v: &dz_num::DzFixed) -> u32 {
+/// native integer. Uses the caller's own backend `g` (mirroring
+/// `rational_to_u32_exponent`), so `:backend crt`/`:backend table` apply
+/// here too and this extraction's gate cost lands in the caller's own
+/// `GateCount` rather than being computed on a throwaway `MvlGates`.
+/// Same bound and same two failure modes as `rational_to_u32_exponent`.
+fn dzfixed_to_u32_exponent<G: DozGates>(g: &G, v: &dz_num::DzFixed) -> Result<u32, EvalError> {
     // Practical bound; `dz-cli`'s REPL is not intended for huge exponents.
     const MAX_EXPONENT: u32 = 1000;
-    let g = dz_gates::MvlGates::new();
     let mut n: u32 = 0;
     let mut probe = dz_num::DzFixed::from_int(dz_int::Dz::from_magnitude(false, vec![dz_gates::Digit::ZERO]));
-    while n < MAX_EXPONENT {
-        if probe.compare(&g, v) == std::cmp::Ordering::Equal {
-            return n;
+    let one = DzFixed::from_int(dz_int::Dz::from_magnitude(false, vec![dz_gates::Digit::ONE]));
+    loop {
+        match probe.compare(g, v) {
+            std::cmp::Ordering::Equal => return Ok(n),
+            std::cmp::Ordering::Greater => return Err(EvalError::NonIntegerExponent),
+            std::cmp::Ordering::Less => {}
         }
-        probe = probe.add(&g, &DzFixed::from_int(dz_int::Dz::from_magnitude(false, vec![dz_gates::Digit::ONE])));
+        if n == MAX_EXPONENT {
+            return Err(EvalError::ExponentTooLarge);
+        }
+        probe = probe.add(g, &one);
         n += 1;
     }
-    MAX_EXPONENT
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dz_gates::{CrtGates, MvlGates};
+
+    fn expr(src: &str) -> Expr {
+        dz_parse::parse_str(src).expect("test expression should parse")
+    }
+
+    #[test]
+    fn pow_integer_exponent_still_works() {
+        let g = MvlGates::new();
+        let e = expr("2^3");
+        let expected_fixed = evaluate(&g, &expr("8")).expect("literal 8 should evaluate");
+        let fixed = evaluate(&g, &e).expect("2^3 should evaluate");
+        assert_eq!(fixed, expected_fixed);
+
+        let expected_rational = evaluate_rational(&g, &expr("8")).expect("literal 8 (rational)");
+        let rational = evaluate_rational(&g, &e).expect("2^3 should evaluate (rational)");
+        assert_eq!(rational.compare(&g, &expected_rational), std::cmp::Ordering::Equal);
+
+        evaluate_dfp(&g, &e).expect("2^3 should evaluate (dfp)");
+    }
+
+    #[test]
+    fn pow_non_integer_exponent_is_an_error() {
+        let g = MvlGates::new();
+        let e = expr("2^1;6");
+        assert_eq!(evaluate(&g, &e), Err(EvalError::NonIntegerExponent));
+        assert!(matches!(evaluate_rational(&g, &e), Err(EvalError::NonIntegerExponent)));
+        assert!(matches!(evaluate_dfp(&g, &e), Err(EvalError::NonIntegerExponent)));
+    }
+
+    #[test]
+    fn pow_exponent_too_large_is_an_error() {
+        let g = MvlGates::new();
+        let e = expr("2^2000");
+        assert_eq!(evaluate(&g, &e), Err(EvalError::ExponentTooLarge));
+        assert!(matches!(evaluate_rational(&g, &e), Err(EvalError::ExponentTooLarge)));
+        assert!(matches!(evaluate_dfp(&g, &e), Err(EvalError::ExponentTooLarge)));
+    }
+
+    #[test]
+    fn pow_exponent_extraction_uses_callers_backend() {
+        // Regression for A5: `dzfixed_to_u32_exponent` used to hard-code a
+        // throwaway `MvlGates` instead of the caller's backend. Evaluating
+        // with a `CrtGates` backend must not panic or silently fall back to
+        // MVL -- it should compute the same, correct result.
+        let g = CrtGates::new();
+        let e = expr("2^3");
+        let expected = evaluate(&g, &expr("8")).expect("literal 8 should evaluate under CrtGates");
+        let fixed = evaluate(&g, &e).expect("2^3 should evaluate under CrtGates");
+        assert_eq!(fixed, expected);
+    }
 }

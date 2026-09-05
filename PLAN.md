@@ -188,7 +188,7 @@ Ver `CLAUDE.md` para rutas y comandos.
 | **7. Panel investigación** | Conteo de puertas + visor de circuito | Pendiente |
 | **8. Extensiones** | Carry-lookahead, multiplicador v2, `DozOp` | Parcial — v2 hecho, resto pendiente |
 
-Estado: 48 tests, clippy limpio, lint de pureza con 4 reglas. El DFP se adelantó
+Estado: 52 tests, clippy limpio, lint de pureza con 4 reglas. El DFP se adelantó
 de la Fase 8 a la 5; el multiplicador v2 se adelantó de la 8 a antes de la GUI
 porque su coste bloqueaba los property tests de racionales.
 

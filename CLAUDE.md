@@ -31,7 +31,7 @@ Antes de dar por bueno un cambio: `pwsh tools/lint-purity.ps1`.
 export PATH="$PATH:/c/Users/ADMIN/.cargo/bin"   # bash
 $env:PATH += ";$env:USERPROFILE\.cargo\bin"     # powershell
 
-cargo test --workspace              # 48 tests, ~2 min en debug
+cargo test --workspace              # 52 tests, ~2 min en debug
 cargo test --workspace --release    # mucho más rápido (~segundos)
 cargo clippy --workspace --all-targets
 cargo run -p dz-cli                 # REPL
