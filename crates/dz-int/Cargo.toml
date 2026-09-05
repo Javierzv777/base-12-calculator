@@ -1,0 +1,13 @@
+[package]
+name = "dz-int"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+dz-gates = { path = "../dz-gates" }
+
+[dev-dependencies]
+proptest = "1"
+num-bigint = "0.4"
+num-traits = "0.2"

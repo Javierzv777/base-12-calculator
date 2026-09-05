@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/dz-gates",
+    "crates/dz-int",
+    "crates/dz-num",
+    "crates/dz-parse",
+    "crates/dz-eval",
+    "crates/dz-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Investigacion Base 12"]
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3

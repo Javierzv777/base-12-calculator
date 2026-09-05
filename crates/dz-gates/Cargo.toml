@@ -1,0 +1,10 @@
+[package]
+name = "dz-gates"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+proptest = "1"

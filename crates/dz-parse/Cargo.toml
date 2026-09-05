@@ -1,0 +1,13 @@
+[package]
+name = "dz-parse"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+dz-gates = { path = "../dz-gates" }
+dz-num = { path = "../dz-num" }
+
+[dev-dependencies]
+proptest = "1"
+dz-eval = { path = "../dz-eval" }
