@@ -2,7 +2,7 @@
 //! `docs/00-fundamentos.md` and `docs/01-diseno-sumador.md`. Run with:
 //!   cargo run -p dz-gates --example gate_counts
 
-use dz_gates::circuits::{digit_mul, half_adder, multiply, ripple_add};
+use dz_gates::circuits::{digit_mul_v1, digit_mul_v2, half_adder, multiply, ripple_add};
 use dz_gates::{CrtGates, Digit, DozGates, MvlGates};
 
 fn digits(n: u32) -> Vec<Digit> {
@@ -40,30 +40,54 @@ fn main() {
         g.reconstruction_ops()
     );
 
-    // Single-digit multiply.
+    // Single-digit multiply: v1 (shift-add) vs v2 (SOP decoder+mux).
     let g = MvlGates::new();
-    let _ = digit_mul(&g, Digit::new(7).unwrap(), Digit::new(9).unwrap());
-    report("digit_mul(7,9) [MVL]", &g);
+    let _ = digit_mul_v1(&g, Digit::new(7).unwrap(), Digit::new(9).unwrap());
+    report("digit_mul_v1(7,9) shift-add [MVL]", &g);
+
+    let g = MvlGates::new();
+    let _ = digit_mul_v2(&g, Digit::new(7).unwrap(), Digit::new(9).unwrap());
+    report("digit_mul_v2(7,9) SOP [MVL]", &g);
+
+    // Same comparison at the two extremes (0 and 11*11, the largest
+    // product) to check v2's cost is truly constant regardless of operand
+    // value, unlike v1's (which depends on y via its repeated-addition loop).
+    let g = MvlGates::new();
+    let _ = digit_mul_v1(&g, Digit::new(11).unwrap(), Digit::new(11).unwrap());
+    report("digit_mul_v1(11,11) shift-add [MVL]", &g);
+
+    let g = MvlGates::new();
+    let _ = digit_mul_v2(&g, Digit::new(11).unwrap(), Digit::new(11).unwrap());
+    report("digit_mul_v2(11,11) SOP [MVL]", &g);
+
+    let g = MvlGates::new();
+    let _ = digit_mul_v1(&g, Digit::new(0).unwrap(), Digit::new(0).unwrap());
+    report("digit_mul_v1(0,0) shift-add [MVL]", &g);
+
+    let g = MvlGates::new();
+    let _ = digit_mul_v2(&g, Digit::new(0).unwrap(), Digit::new(0).unwrap());
+    report("digit_mul_v2(0,0) SOP [MVL]", &g);
 
     // Multi-digit ripple-add: two 4-digit numbers.
     let g = MvlGates::new();
     let a = digits(1728); // "1000" base12
-    let b = digits(1727); // "0ЕЕЕ"-ish, just some 4-digit number
+    let b = digits(1727); // some 4-digit number
     let _ = ripple_add(&g, &a, &b);
     report("ripple_add(4-digit, 4-digit) [MVL]", &g);
 
-    // Multi-digit multiply: 3-digit x 2-digit.
+    // Multi-digit multiply: 3-digit x 2-digit, using the default digit
+    // multiplier (currently v2).
     let g = MvlGates::new();
     let a = digits(1000);
     let b = digits(99);
     let _ = multiply(&g, &a, &b);
-    report("multiply(3-digit x 2-digit, shift-add) [MVL]", &g);
+    report("multiply(3-digit x 2-digit, default=v2) [MVL]", &g);
 
     let g = CrtGates::new();
     let a = digits(1000);
     let b = digits(99);
     let _ = multiply(&g, &a, &b);
-    report("multiply(3-digit x 2-digit, shift-add) [CRT]", &g);
+    report("multiply(3-digit x 2-digit, default=v2) [CRT]", &g);
     println!(
         "  (CRT reconstruction ops for this call: {})",
         g.reconstruction_ops()

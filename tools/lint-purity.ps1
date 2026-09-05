@@ -41,6 +41,15 @@
       the one sanctioned place. Nothing built on top of `DozGates`
       (adders, multipliers, `dz-int`, `dz-parse`, `dz-eval`, `dz-cli`) may
       do this.
+    - `build_lo_hi_tables()` in `dz-gates/src/circuits/multiplier.rs`
+      (digit multiplier v2, SOP): computes `j * k` natively over `j, k`
+      loop counters `0..11` to fix the constants a two-level
+      decoder-plus-mux circuit is wired to. This is argued at length --
+      including the honest counter-argument that it stretches the
+      "native arithmetic only in `backends/`" rule stated above, since this
+      file isn't in `backends/` -- in `docs/01-diseno-sumador.md`. Nothing
+      here calls `.tag()`, so rule #2 below still catches any regression
+      that tried to read a live `Digit`'s value instead.
     - `dz-parse/src/alphabet.rs`: converting between a `char` (the outside
       alphabet) and a `Digit` (the tag space) is a symbol-table lookup,
       analogous to `char::from_u32`, not a computation on a dozenal

@@ -50,18 +50,19 @@ fn rat_to_bigrational(r: &DzRational) -> BigRational {
     BigRational::new(dz_to_bigint(&r.num), dz_to_bigint(&r.den))
 }
 
-// Kept deliberately small: `DzRational` normalizes with Euclid's algorithm
-// on every operation (gcd via repeated `Dz::div_rem`), and `Dz`
-// multiplication is the shift-add v1 circuit from `dz-gates`, which costs
-// ~34k gate calls per single-digit multiply (see docs/01-diseno-sumador.md)
-// -- so operand digit-counts, not proptest case counts, dominate runtime.
-// This range keeps the whole property suite well under a minute while
-// still exercising multi-digit numerators/denominators after normalization.
+// Matches `dz-int`'s property test range now that `Dz` multiplication uses
+// the SOP multiplier v2 (876 gate calls per single-digit multiply, ~38.5x
+// cheaper than v1's ~34k -- see docs/01-diseno-sumador.md) instead of v1's
+// shift-add. `DzRational` normalizes with Euclid's algorithm on every
+// operation (gcd via repeated `Dz::div_rem`, each doing several `Dz::mul`
+// trial multiplications), so this remains the more expensive of the two
+// test suites, but v2 made ±5000/300 cases practical (~1 minute; see the
+// measured time reported alongside this file in the final report).
 fn arb_small_i64() -> impl Strategy<Value = i64> {
-    -40i64..40i64
+    -5000i64..5000i64
 }
 fn arb_nonzero_small_i64() -> impl Strategy<Value = i64> {
-    (1i64..40i64).prop_flat_map(|x| prop_oneof![Just(x), Just(-x)])
+    (1i64..5000i64).prop_flat_map(|x| prop_oneof![Just(x), Just(-x)])
 }
 
 #[test]
@@ -110,7 +111,7 @@ fn division_by_zero_errors() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(60))]
+    #![proptest_config(ProptestConfig::with_cases(300))]
 
     #[test]
     fn add_matches_bigrational(

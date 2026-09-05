@@ -4,7 +4,7 @@
 //! multiplication.
 
 use dz_gates::backends::{oracle_add, oracle_mul, CrtGates, MvlGates, TableGates};
-use dz_gates::circuits::{digit_mul, half_adder};
+use dz_gates::circuits::{digit_mul, digit_mul_v1, digit_mul_v2, half_adder};
 use dz_gates::{Digit, DozGates};
 
 fn all_digits() -> Vec<Digit> {
@@ -70,6 +70,8 @@ fn half_adder_matches_oracle_144_all_backends() {
 
 #[test]
 fn digit_mul_matches_oracle_144_all_backends() {
+    // The current default (`digit_mul`, currently v2) against the oracle,
+    // on all three `DozGates` backends.
     let mvl = MvlGates::new();
     let crt = CrtGates::new();
     let table = TableGates::new();
@@ -92,4 +94,33 @@ fn digit_mul_matches_oracle_144_all_backends() {
         }
     }
     assert_eq!(count, 144);
+}
+
+/// v1 (shift-add) vs v2 (SOP) vs the table oracle, all three `DozGates`
+/// backends: 144 combinations x 2 multiplier implementations x 3 backends
+/// = 864 comparisons, all must agree.
+fn check_v1_v2_against_oracle<G: DozGates>(name: &str, g: &G) {
+    let mut count = 0;
+    for x in all_digits() {
+        for y in all_digits() {
+            let expected = oracle_mul(x, y);
+
+            let v1 = digit_mul_v1(g, x, y);
+            assert_eq!(v1, expected, "v1[{}] mismatch at ({:?},{:?})", name, x, y);
+
+            let v2 = digit_mul_v2(g, x, y);
+            assert_eq!(v2, expected, "v2[{}] mismatch at ({:?},{:?})", name, x, y);
+
+            assert_eq!(v1, v2, "v1/v2[{}] disagree at ({:?},{:?})", name, x, y);
+            count += 1;
+        }
+    }
+    assert_eq!(count, 144);
+}
+
+#[test]
+fn digit_mul_v1_v2_and_oracle_agree_144_all_backends() {
+    check_v1_v2_against_oracle("mvl", &MvlGates::new());
+    check_v1_v2_against_oracle("crt", &CrtGates::new());
+    check_v1_v2_against_oracle("table", &TableGates::new());
 }
