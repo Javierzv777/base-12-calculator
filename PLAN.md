@@ -171,37 +171,96 @@ InverstigacionBase12/
 
 ---
 
-## 10. Fases
+## 10. Fases — estado
 
-| Fase | Entregable | Criterio de "hecho" |
+Actualizado tras los commits `ad31650`, `47bb0e9`, `18565f8`, `1bb7b80`.
+Ver `CLAUDE.md` para rutas y comandos.
+
+| Fase | Entregable | Estado |
 |---|---|---|
-| **0. Setup** | Toolchain + workspace vacío que compila | `rustup` instalado, `cargo test` verde |
-| **1. Puertas** | `dz-gates` con 3 backends | 144/144 diferenciales pasan |
-| **2. Sumador** | Semi/full adder + ripple-carry | Suma de N dígitos correcta vs oráculo |
-| **3. Enteros** | `dz-int`: ± × ÷ comparación, complemento a 12 | Property tests verdes |
-| **4. REPL** | `dz-cli` — **primera cosa usable** | `4;6 × 3 = 11;6` en terminal |
-| **5. Fraccionarios** | Racionales exactos + punto fijo | `1÷3` da `0;4` exacto |
-| **6. GUI** | App Tauri con teclado y display | Ejecutable Windows funciona |
-| **7. Panel investigación** | Conteo de puertas + visor de circuito | Export CSV de trazas |
-| **8. Extensiones** | Carry-lookahead, DFP, funciones nuevas vía `DozOp` | Gráficos comparativos en `docs/` |
+| **0. Setup** | Workspace de 6 crates que compila | **Hecha** |
+| **1. Puertas** | `dz-gates`, 3 backends | **Hecha** — 144/144 diferenciales |
+| **2. Sumador** | Semi/full adder + ripple-carry | **Hecha** — `half_adder` = 151 puertas |
+| **3. Enteros** | `dz-int`, complemento a 12, división restauradora | **Hecha** |
+| **4. REPL** | `dz-cli` | **Hecha** — `4;6 × 3 = 11;6` |
+| **5. Fraccionarios** | Punto fijo, racionales exactos, DFP | **Hecha** — `1÷3` da `1/3` exacto |
+| **6. GUI** | App Tauri | Pendiente |
+| **7. Panel investigación** | Conteo de puertas + visor de circuito | Pendiente |
+| **8. Extensiones** | Carry-lookahead, multiplicador v2, `DozOp` | Parcial — v2 hecho, resto pendiente |
 
-Las fases 0–4 son el camino crítico. Fase 4 ya te da una calculadora dozenal real y auditable. Todo lo demás se apila encima sin tocar el núcleo.
+Estado: 48 tests, clippy limpio, lint de pureza con 4 reglas. El DFP se adelantó
+de la Fase 8 a la 5; el multiplicador v2 se adelantó de la 8 a antes de la GUI
+porque su coste bloqueaba los property tests de racionales.
 
 ---
 
-## 11. Prerrequisitos a instalar
+## 10bis. Lo que falta, en orden sugerido
 
-- **rustup** (no está instalado): https://rustup.rs → toolchain `stable-x86_64-pc-windows-msvc`
-- **Visual Studio Build Tools** con "Desktop development with C++" (linker MSVC)
-- **WebView2** — ya viene en Windows 11, no requiere acción
-- **Tauri CLI:** `cargo install tauri-cli` (Node ya está instalado para el frontend)
+### A. Carry-lookahead dozenal (Fase 8) — pequeño, autocontenido
+Único cambio en `dz-gates/src/circuits/adder.rs`, sin tocar capas superiores.
+- `G = thr(12−y, x)` (genera), `P = lit(↋, s)` (propaga: la suma del dígito es
+  exactamente ↋).
+- Comparar contra `ripple_add` en puertas **y en profundidad de circuito**. La
+  profundidad es el número que justifica el lookahead; el conteo total puede
+  incluso subir. Medir ambas.
+- Entregable: fila nueva en `examples/gate_counts.rs` y sección en
+  `docs/01-diseno-sumador.md`.
+
+### B. GUI Tauri (Fase 6) — el salto grande
+- Teclado de 12 dígitos, display, historial, memoria.
+- Reutiliza `dz-eval` tal cual; el núcleo no se toca.
+- **Riesgo real:** el render de `↊`/`↋` (U+218A/218B) falla en muchas fuentes de
+  Windows. Decidir pronto entre SVG propios o alias ASCII por defecto. No dejarlo
+  para el final.
+- Prerrequisitos ya instalados (ver Sección 11).
+
+### C. Panel de investigación (Fase 7) — donde esto deja de ser una calculadora
+- Selector de backend en caliente (`DozGates` ya es un trait, está preparado).
+- Contador de puertas de la última operación (`GateCount` ya existe).
+- Visor paso a paso del ripple-carry: ver el acarreo propagarse dígito a dígito.
+- Export CSV de trazas.
+
+### D. Deuda conocida, no urgente
+- **DFP:** sin subnormales ni cero con signo. `evaluate_dfp` redondea una vez al
+  final de la expresión en vez de tras cada operación, así que `1/0` dentro de una
+  expresión falla en la etapa racional en vez de dar `Inf`.
+- **Velocidad de racionales:** ~106 s en debug (~1 s en release). La causa es
+  Euclides llamando a `div_rem` en cada normalización. Si molesta, cachear o
+  implementar GCD binario dozenal.
+- **`digit_mul_v1`:** conservado a propósito para la comparación de la
+  investigación. No borrarlo.
+
+### E. Fuera de alcance por ahora
+Funciones trascendentes (log, trig). Requieren CORDIC dozenal — es un proyecto
+propio, no una extensión. No empezarlo antes de que la Fase 7 esté cerrada.
+
+---
+
+## 11. Prerrequisitos — instalados
+
+- **rustup / cargo** — rustc 1.98.1. **No está en el PATH**; vive en
+  `C:\Users\ADMIN\.cargo\bin`. Ver `CLAUDE.md`.
+- **cargo-tauri** 2.11.4 — instalado.
+- **Node** v24.13.0 — instalado.
+- **WebView2** — incluido en Windows 11.
+- **Visual Studio Build Tools** — presente (el workspace enlaza correctamente).
 
 ---
 
 ## 12. Riesgos y decisiones abiertas
 
-- **Render de ↊ ↋:** poco soporte tipográfico en Windows. Mitigación: SVG propios como fallback, y alias ASCII configurable desde el día 1.
-- **Detección de acarreo en CRT:** puede resultar tan cara que anule la ventaja del backend CRT. Es un resultado válido de la investigación, no un fallo — documentarlo.
-- **Rendimiento del backend MVL:** simular puertas es lento. Aceptable para una calculadora; si molesta, cachear tablas sintetizadas (sin romper la semántica).
-- **Formato DFP:** no hay estándar. Hay que definirlo y justificarlo.
-- **Alcance:** resistir la tentación de meter funciones trascendentes antes de la Fase 6. Log y trig en base 12 requieren CORDIC dozenal — proyecto propio.
+- **Render de ↊ ↋:** sigue abierto y es el riesgo principal de la Fase 6. Poco
+  soporte tipográfico en Windows. Decidir entre SVG propios o alias ASCII por
+  defecto antes de construir el teclado, no después.
+- ~~**Detección de acarreo en CRT**~~ — **resuelto, y el resultado fue negativo.**
+  CRT no compensa: necesita reconstruir el dígito para toda comparación de orden,
+  176 reconstrucciones en un `half_adder` y 13.938 en un `multiply` 3×2. La
+  ventaja de descomponer nunca llega. Documentado en `docs/02-crt-vs-mvl.md`.
+  Es un hallazgo publicable, no un fallo.
+- ~~**Formato DFP**~~ — definido en `docs/03-formato-dfp.md`: signo + exponente
+  sesgado de 2 dígitos (bias 71) + mantisa de 12 dígitos, half-even correcto.
+- **Rendimiento del backend MVL:** sigue siendo lento por diseño. El multiplicador
+  v2 lo bajó 38×. Cachear más agresivamente es posible, pero cuidado: cachear la
+  *semántica* de una operación derivada es exactamente el bug que arregló
+  `18565f8`. Cachear resultados sí; importar significado de aritmética nativa no.
+- **Alcance:** resistir meter trascendentes antes de cerrar la Fase 7.
