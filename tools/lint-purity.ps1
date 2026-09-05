@@ -23,6 +23,24 @@
          lexer, which would smuggle a value through native integer/float
          parsing instead of building it digit-by-digit (PLAN.md Section 5).
 
+      4. Native `*`, `%`, or `/` operators anywhere in `crates/dz-*/src`
+         outside `backends/` -- i.e. computing a product, remainder, or
+         quotient natively instead of deriving it from `DozGates`
+         primitives (`Dz::mul`, `Dz::div_rem`, ...). This is the rule that
+         would have caught, on its own, an actual regression that shipped
+         and was later fixed: `digit_mul_v2`'s SOP constant table
+         (`LO[j][k]`/`HI[j][k]`) was originally computed with native
+         `j * k; prod % RADIX; prod / RADIX` in
+         `dz-gates/src/circuits/multiplier.rs` -- outside `backends/`, so
+         rule #2 (`.tag()`) didn't catch it (no `.tag()` was called), but
+         it was still native arithmetic silently encoding the meaning of
+         multiplication. See `docs/01-diseno-sumador.md` ("objecion
+         planteada, y resuelta") for the full story and the fix (the table
+         is now synthesized by calling the already gate-composed
+         `digit_mul_v1`, memoized once). This rule exists so the *next*
+         version of this mistake gets caught by CI instead of by manual
+         review.
+
 .WHAT COUNTS AS ACCEPTABLE NATIVE ARITHMETIC (not flagged by this script)
     - Arithmetic on `usize`/loop counters/`Vec` indices/lengths (e.g. `i += 1`,
       `RADIX - j`, `v.len() - 1`). PLAN.md Section 0 explicitly allows this:
@@ -41,15 +59,14 @@
       the one sanctioned place. Nothing built on top of `DozGates`
       (adders, multipliers, `dz-int`, `dz-parse`, `dz-eval`, `dz-cli`) may
       do this.
-    - `build_lo_hi_tables()` in `dz-gates/src/circuits/multiplier.rs`
-      (digit multiplier v2, SOP): computes `j * k` natively over `j, k`
-      loop counters `0..11` to fix the constants a two-level
-      decoder-plus-mux circuit is wired to. This is argued at length --
-      including the honest counter-argument that it stretches the
-      "native arithmetic only in `backends/`" rule stated above, since this
-      file isn't in `backends/` -- in `docs/01-diseno-sumador.md`. Nothing
-      here calls `.tag()`, so rule #2 below still catches any regression
-      that tried to read a live `Digit`'s value instead.
+    - `lo_hi_table()` in `dz-gates/src/circuits/multiplier.rs` (digit
+      multiplier v2, SOP) used to compute its constant table with native
+      `j * k` -- that was the bug rule #4 above exists to catch, and it has
+      since been fixed to synthesize the table by calling `digit_mul_v1`
+      (gate-composed) instead. It is *not* listed here as an accepted
+      exception; it is exempt from rule #4 below only in the sense that it
+      no longer contains the pattern rule #4 forbids. See
+      `docs/01-diseno-sumador.md`.
     - `dz-parse/src/alphabet.rs`: converting between a `char` (the outside
       alphabet) and a `Digit` (the tag space) is a symbol-table lookup,
       analogous to `char::from_u32`, not a computation on a dozenal
@@ -101,6 +118,13 @@ $TagExemptFiles = @(
     'dz-gates/src/backends/table.rs'
     'dz-parse/src/alphabet.rs'
 )
+
+# Directory (relative to $CratesRoot, forward-slash) exempt from rule #4
+# (native `* % /`): the backend truth-table/oracle definitions. This is
+# the *only* exemption for rule #4 -- unlike rule #2, there is no
+# "symbol-table lookup" analog for arithmetic operators, since converting
+# a char to a Digit (alphabet.rs) never needs to multiply/divide/mod.
+$ArithmeticExemptDirPrefix = 'dz-gates/src/backends/'
 
 function Normalize-RelPath([string]$FullPath) {
     $rel = $FullPath.Substring($CratesRoot.Length + 1)
@@ -156,6 +180,38 @@ if (Test-Path $lexerFile) {
     }
 }
 
+# --- Rule 4: native `*`, `%`, `/` outside backends/. ---
+# A binary operator needs an operand-like character (alnum, `)`, `]`) on
+# both sides to count -- this excludes glob imports (`use foo::*;`, `*`
+# preceded by `:`), char/string literals (`'/'`, preceded/followed by a
+# quote), and doc-comment prose. Two things are stripped from each line
+# before matching:
+#   - trailing `// ...` comments (this codebase uses no `/* */` block
+#     comments, verified by hand when this rule was added), so prose like
+#     "// 0 * inf" on a real code line doesn't false-positive;
+#   - double-quoted string literals (e.g. `println!("... 6/12 ...")`,
+#     `"* (or x) /"` in `dz-cli`'s help text), so user-facing text
+#     describing operators doesn't false-positive either.
+$arithmeticPattern = '[A-Za-z0-9_)\]]\s*[*%/]\s*[A-Za-z0-9_(]'
+$stringLiteralPattern = '"(?:[^"\\]|\\.)*"'
+
+foreach ($file in $srcFiles) {
+    $rel = Normalize-RelPath $file.FullName
+    if ($rel.StartsWith($ArithmeticExemptDirPrefix)) {
+        continue
+    }
+    $lines = Get-Content -LiteralPath $file.FullName
+    for ($i = 0; $i -lt $lines.Length; $i++) {
+        $line = $lines[$i]
+        $commentIdx = $line.IndexOf('//')
+        $code = if ($commentIdx -ge 0) { $line.Substring(0, $commentIdx) } else { $line }
+        $code = [regex]::Replace($code, $stringLiteralPattern, '""')
+        if ($code -match $arithmeticPattern) {
+            $violations.Add("[native-arithmetic-outside-backends] ${rel}:$($i+1): $($line.Trim())")
+        }
+    }
+}
+
 if ($violations.Count -gt 0) {
     Write-Host "Purity lint FAILED: $($violations.Count) violation(s) found." -ForegroundColor Red
     foreach ($v in $violations) {
@@ -164,5 +220,5 @@ if ($violations.Count -gt 0) {
     exit 1
 }
 
-Write-Host "Purity lint OK: no forbidden arithmetic on Digit values, no stray .tag() calls, no native parsing in the lexer." -ForegroundColor Green
+Write-Host "Purity lint OK: no forbidden arithmetic on Digit values, no stray .tag() calls, no native parsing in the lexer, no native *, %, or / outside backends/." -ForegroundColor Green
 exit 0

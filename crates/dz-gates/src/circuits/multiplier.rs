@@ -6,19 +6,24 @@
 //! - `digit_mul_v1`: shift-add (repeated addition), the original
 //!   implementation.
 //! - `digit_mul_v2`: two-level SOP (sum-of-products) decoder over both
-//!   operands, 144 branches, `MAX`-multiplexed. See the "is this the table
-//!   backend in disguise?" discussion below and in
-//!   `docs/01-diseno-sumador.md` -- short answer: no, but the objection has
-//!   a grain of truth worth stating plainly.
+//!   operands, 144 branches, `MAX`-multiplexed. Its constant table
+//!   (`lo_hi_table`) is synthesized by calling `digit_mul_v1` -- gate
+//!   composed, not computed with native `*`/`%`/`/` -- see the doc comment
+//!   on `lo_hi_table` and the "is this the table backend in disguise?"
+//!   discussion in `docs/01-diseno-sumador.md` for the full history (an
+//!   earlier version of this file did compute the table with native `j*k`,
+//!   which was identified and fixed).
 //!
 //! `digit_mul` is an alias for whichever is the default (currently v2,
 //! since it is ~30x cheaper -- see `docs/01-diseno-sumador.md` for the
 //! measured counts). `multiply`/`scale_by_digit` (the multi-digit
 //! entry points used by `dz-int`) use the default.
 
+use crate::backends::MvlGates;
 use crate::circuits::adder::{half_adder, ripple_add};
 use crate::digit::{Digit, RADIX};
 use crate::traits::DozGates;
+use std::sync::OnceLock;
 
 /// v1: single-digit multiply via repeated addition, decoded over all
 /// possible values of `y`. For every candidate value `j` of `y` (`j` is a
@@ -58,29 +63,59 @@ pub fn digit_mul_v1<G: DozGates>(g: &G, x: Digit, y: Digit) -> (Digit, Digit) {
     (lo, hi)
 }
 
-/// `LO[j][k] = (j*k) mod 12`, `HI[j][k] = (j*k) div 12` -- the dozenal
-/// multiplication table, but here it plays the role of a *circuit
-/// specification*, not a runtime data structure. See the module docs and
-/// `docs/01-diseno-sumador.md` for why that distinction matters and is
-/// argued honestly rather than asserted. `j`, `k` here are loop counters
-/// enumerating "every possible digit value", exactly like `RADIX - j` in
-/// `circuits::adder` or `RADIX - 1 - j` in `circuits::complement` -- never
-/// a `.tag()` read off a live `Digit`.
-const fn build_lo_hi_tables() -> [[(u8, u8); RADIX as usize]; RADIX as usize] {
-    let mut t = [[(0u8, 0u8); RADIX as usize]; RADIX as usize];
-    let mut j: u8 = 0;
-    while j < RADIX {
-        let mut k: u8 = 0;
-        while k < RADIX {
-            let prod = j * k;
-            t[j as usize][k as usize] = (prod % RADIX, prod / RADIX);
-            k += 1;
+/// `LO[j][k]`/`HI[j][k]` -- the dozenal multiplication table, playing the
+/// role of a *circuit specification* for the SOP decoder below, not a
+/// runtime data structure (see the module docs and
+/// `docs/01-diseno-sumador.md` for the "is this the table backend in
+/// disguise?" discussion this feeds).
+///
+/// This table is **synthesized by calling `digit_mul_v1`** (already
+/// gate-composed and already checked equivalent to the table oracle on all
+/// 144 combinations) for every `(j, k)` pair, once, and memoized. No `*`,
+/// `%`, or `/` is applied to a digit's value anywhere in this
+/// initialization -- an earlier version of this file computed `j * k`
+/// directly with native `u8` arithmetic to fill this table, which was
+/// exactly the thing the whole project exists to avoid: deriving the
+/// *meaning* of multiplication natively instead of from gates. `j`/`k`
+/// here are still just loop counters (`0..12`, enumerating "every possible
+/// digit value" to build `Digit::new(j)`/`Digit::new(k)` test operands --
+/// the same pattern `Digit::all()` uses), but the *product* itself now
+/// comes from `digit_mul_v1(init_gates, Digit::new(j), Digit::new(k))`,
+/// not from computing `j * k`.
+///
+/// The backend used to synthesize the table is fixed to `MvlGates`, not
+/// generic over the caller's `G`. This is a deliberate, documented choice:
+/// multiplication is one mathematical function, and the differential tests
+/// (`digit_mul_v1_v2_and_oracle_agree_144_all_backends`) already establish
+/// that all three backends compute the identical `(lo, hi)` for every one
+/// of the 144 pairs -- so which backend synthesizes the specification
+/// cannot change what the specification *is*. A disposable `MvlGates`
+/// instance is created solely for this synthesis and discarded; its
+/// `GateCount` is never read, so the (one-time, memoized) cost of building
+/// this table never contaminates the gate count measured for a caller's
+/// own `digit_mul_v2` call (verified by `examples/gate_counts.rs` still
+/// reporting exactly 876 per call).
+fn lo_hi_table() -> &'static Vec<Vec<(Digit, Digit)>> {
+    static LO_HI: OnceLock<Vec<Vec<(Digit, Digit)>>> = OnceLock::new();
+    LO_HI.get_or_init(|| {
+        let init_gates = MvlGates::new();
+        let mut table = Vec::with_capacity(RADIX as usize);
+        let mut j: u8 = 0;
+        while j < RADIX {
+            let xj = Digit::new(j).expect("j is in 0..RADIX");
+            let mut row = Vec::with_capacity(RADIX as usize);
+            let mut k: u8 = 0;
+            while k < RADIX {
+                let yk = Digit::new(k).expect("k is in 0..RADIX");
+                row.push(digit_mul_v1(&init_gates, xj, yk));
+                k += 1;
+            }
+            table.push(row);
+            j += 1;
         }
-        j += 1;
-    }
-    t
+        table
+    })
 }
-const LO_HI: [[(u8, u8); RADIX as usize]; RADIX as usize] = build_lo_hi_tables();
 
 /// v2: two-level sum-of-products (SOP) decoder over both operands.
 ///
@@ -98,6 +133,7 @@ const LO_HI: [[(u8, u8); RADIX as usize]; RADIX as usize] = build_lo_hi_tables()
 /// decodes `x` and `y` into 24 boolean signals (12 `lit(j,x)` + 12
 /// `lit(k,y)`) and combines them combinationally.
 pub fn digit_mul_v2<G: DozGates>(g: &G, x: Digit, y: Digit) -> (Digit, Digit) {
+    let table = lo_hi_table();
     let mut lo = Digit::ZERO;
     let mut hi = Digit::ZERO;
     let mut j: u8 = 0;
@@ -106,9 +142,7 @@ pub fn digit_mul_v2<G: DozGates>(g: &G, x: Digit, y: Digit) -> (Digit, Digit) {
         let mut k: u8 = 0;
         while k < RADIX {
             let sel = g.min(lit_x, g.lit(k, y));
-            let (lo_c, hi_c) = LO_HI[j as usize][k as usize];
-            let lo_const = Digit::new(lo_c).expect("table entries are always in-range");
-            let hi_const = Digit::new(hi_c).expect("table entries are always in-range");
+            let (lo_const, hi_const) = table[j as usize][k as usize];
             lo = g.max(lo, g.min(sel, lo_const));
             hi = g.max(hi, g.min(sel, hi_const));
             k += 1;

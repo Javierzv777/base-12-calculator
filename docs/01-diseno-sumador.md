@@ -64,63 +64,77 @@ tanto por `dz-int`) es ahora un alias de `digit_mul_v2` — **v2 es el
 multiplicador por defecto**. `digit_mul_v1` se conserva, exportado por
 separado, exactamente para poder seguir comparando los dos diseños.
 
-### "¿Esto no es el backend de tabla disfrazado?" — la objeción, tomada en serio
+### "¿Esto no es el backend de tabla disfrazado?" — objeción planteada, y resuelta
 
-Es una objeción razonable y hay que responderla con las cartas boca
-arriba, no esquivarla.
+Esta sección documentó originalmente una concesión: las constantes
+`LO[j][k]`/`HI[j][k]` de `digit_mul_v2` se calculaban con `j * k` nativo
+(dos contadores de bucle, nunca un `.tag()` leído de un `Digit` real), y
+esa entrega admitía que era "aritmética nativa que sabe lo que es
+multiplicar en base 12", aunque viviera fuera de `backends/`. Una revisión
+posterior identificó que la concesión no era suficiente: había que mirar
+*qué primitivas invierte v2 en contenido aritmético real*, no solo dónde
+vive el código que construye la tabla.
 
-**Lo que hace el backend de tabla (`TableGates`, `dz-gates/src/backends/table.rs`):**
-en tiempo de ejecución, para un `x` y un `y` concretos, hace
-`MUL_TABLE[x.tag()][y.tag()]` — indexa memoria *directamente* con el tag
-del operando. La tabla **es** la operación; no hay ningún `DozGates::lit`,
-`::min` ni `::max` de por medio, y por diseño ese backend no cuenta
-ninguna puerta para la multiplicación (por eso el plan lo llama "no es un
-backend de producción", solo un oráculo para tests).
+**El diagnóstico.** El desglose de `digit_mul_v2` (`cargo run -p dz-gates
+--example gate_counts`) es `cycle=0, thr=0, min=432, max=288, lit=156`.
+`lit` selecciona, `min` conjunta, `max` combina — ninguna de las tres
+aporta contenido dozenal: son puro enrutamiento booleano. Compárese con
+`digit_mul_v1`, que gasta `cycle=14652`: el sucesor, aplicado repetidamente,
+sí es contenido dozenal real (es la definición misma de "sumar"). Eso
+significa que en v2 **toda la semántica de la multiplicación vivía en las
+constantes**, y esas constantes salían de `j * k` nativo. La defensa
+original ("el costo se mide, nunca se lee `.tag()`") es correcta pero
+responde a una pregunta distinta de "¿de dónde salió el *significado* de
+la multiplicación?". Las tablas de `cycle`/`min`/`max` en `backends/` son
+axiomas — definen qué son los símbolos, no hay otra forma de escribirlos.
+La multiplicación no es un axioma: es exactamente la operación derivada
+que este proyecto entero se propone construir desde las primitivas.
+Derivarla con `*` nativo, aunque fuera para "solo" fijar una constante,
+era hacer con la mano lo que el circuito decía estar computando con
+puertas.
 
-**Lo que hace `digit_mul_v2`:** en tiempo de ejecución, para un `x` y un
-`y` concretos, evalúa **144 ramas** de `MIN(lit(j,x), lit(k,y), CONST)` y
-las combina con `MAX` — 876 llamadas a primitiva en total (medido, ver
-abajo), sin importar qué valores concretos tengan `x` e `y`. Nunca llama a
-`x.tag()`/`y.tag()`. El costo se puede medir, se puede comparar contra v1,
-y **es genuinamente mayor que cero** — a diferencia del backend de tabla,
-donde el costo de la multiplicación es, por construcción, cero puertas.
+**El arreglo.** `LO[j][k]`/`HI[j][k]` ya no se calculan con aritmética
+nativa. `lo_hi_table()` (`circuits/multiplier.rs`) construye la tabla una
+única vez, en tiempo de ejecución, memoizada en un `OnceLock`, llamando a
+`digit_mul_v1(init_gates, Digit::new(j), Digit::new(k))` para cada uno de
+los 144 pares — `digit_mul_v1` ya está compuesto enteramente de puertas y
+ya está verificado equivalente al oráculo en las 144 combinaciones. No
+queda ningún `*`, `%` ni `/` sobre un valor de dígito en todo el archivo.
+`j`/`k` siguen siendo contadores de bucle usados para construir los
+`Digit` de prueba (`Digit::new(j)`), exactamente como ya hace
+`Digit::all()` — eso nunca fue el problema; el problema era computar el
+*producto* nativamente, y eso ya no ocurre en ningún sitio de este
+archivo.
 
-La distinción exacta que sostenemos: **las constantes `LO[j][k]`/
-`HI[j][k]` son la especificación de la función** (qué debería salir para
-cada combinación posible de entradas), no la implementación de cómo se
-calcula esa salida para una entrada dada. Esto es idéntico en naturaleza a
-los `cycle^j(x)` precomputados de la fórmula de la suma del semi-sumador
-(Sección 2), o a la constante `Digit::new(RADIX-1-j)` de
-`ones_complement_digit` (`circuits/complement.rs`): en ambos casos hay una
-tabla de valores por-rama fijada de antemano, y el circuito real es la
-estructura decodificador+mux que la usa. Nadie objeta que `half_adder` sea
-"el backend de tabla disfrazado" aunque también tiene una tabla de 12
-valores (`cycle^0(x), cycle^1(x), ..., cycle^11(x)`) escondida en su
-fórmula — la diferencia con el backend de tabla es siempre la misma: ¿se
-indexa con el tag del operando en tiempo de ejecución (tabla), o se decodifica
-el operando en señales booleanas y se multiplexa (SOP/circuito)?
-`digit_mul_v2` hace lo segundo.
+`init_gates` es una instancia de `MvlGates` desechable, creada solo para
+esta síntesis; su `GateCount` nunca se lee, así que el costo (único,
+memoizado) de construir la tabla no contamina el conteo de puertas medido
+para una llamada de un usuario a `digit_mul_v2` — verificado: `cargo run -p
+dz-gates --example gate_counts` sigue reportando exactamente **876** por
+llamada, igual que antes del cambio.
 
-**Dónde la objeción sí tiene razón, y hay que decirlo:** las constantes
-`LO[j][k]`/`HI[j][k]` se calculan, en `build_lo_hi_tables()`
-(`multiplier.rs`), con aritmética nativa (`j * k`, `% RADIX`, `/ RADIX`)
-sobre `j` y `k` — dos contadores de bucle 0..11, nunca un `.tag()` leído de
-un `Digit` real. Eso es aritmética nativa que "sabe" lo que es multiplicar
-en base 12, ejecutada en tiempo de compilación/construcción para fijar el
-cableado del circuito. Es exactamente la misma categoría de excepción que
-ya usan `backends/mvl.rs` (`CYCLE_TABLE` vía `(x+1) % RADIX`) y
-`backends/table.rs` (`MUL_TABLE` vía `x * y`) — con la diferencia de que
-esas viven en `backends/` (el lugar ya señalado como sede legítima de
-"definir qué significa cada símbolo") y `build_lo_hi_tables` vive en
-`circuits/multiplier.rs`, un archivo que hasta ahora no necesitaba tocar
-aritmética nativa de ningún tipo salvo sobre contadores de bucle triviales
-(`RADIX - j`, no productos). Si el estándar es "cero aritmética nativa que
-codifique el significado de la multiplicación, en ningún archivo", esto lo
-incumple técnicamente. Nuestra posición es que la línea correcta a trazar
-no es "en qué archivo vive el código" sino "¿qué hace el circuito con un
-`Digit` real en tiempo de ejecución?" — y ahí `digit_mul_v2` nunca lee un
-tag ni indexa con uno. Pero es una línea que se puede trazar distinto, y
-se documenta aquí en vez de darla por sentada.
+La síntesis usa `MvlGates` fijo, no genérico sobre el backend `G` de quien
+llama. Es una decisión deliberada: la multiplicación es una única función
+matemática, y los tests diferenciales
+(`digit_mul_v1_v2_and_oracle_agree_144_all_backends`) ya establecen que
+los tres backends calculan el mismo `(lo, hi)` para las 144 combinaciones
+— así que qué backend sintetiza la especificación no puede cambiar cuál es
+la especificación.
+
+**Con esto resuelto, la comparación con el backend de tabla queda así:**
+en tiempo de ejecución, `TableGates` hace `MUL_TABLE[x.tag()][y.tag()]` —
+indexa memoria *directamente* con el tag del operando; la tabla **es** la
+operación, y por diseño no cuenta ninguna puerta (de ahí que el plan lo
+llame "no es un backend de producción"). `digit_mul_v2`, en cambio, evalúa
+144 ramas de `MIN(lit(j,x), lit(k,y), CONST)` combinadas con `MAX` — 876
+llamadas a primitiva, medibles, comparables contra v1 — y nunca lee
+`x.tag()`/`y.tag()` en tiempo de ejecución; decodifica ambos operandos en
+24 señales booleanas y las combina combinacionalmente. La diferencia ya no
+depende de una lectura generosa de "especificación vs. implementación": la
+especificación (`LO`/`HI`) ahora también se deriva de puertas, así que no
+queda ningún `*`/`%`/`/` nativo escondido en ninguna parte de la cadena
+v2 → resultado. Es, ahora sí, "una memoización sintetizada de una función
+derivada con puertas", no una tabla importada desde aritmética binaria.
 
 ## Conteos de puertas medidos
 
