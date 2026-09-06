@@ -179,11 +179,175 @@ Observaciones:
   representan una fracción mayor del costo total.
 - **Un solo `half_adder` sigue costando 151 invocaciones de puerta.** El
   decodificador de 12 ramas (`MAX_j MIN(...)`) domina el costo de la suma;
-  no se tocó en este trabajo. Sigue siendo el candidato obvio para
-  carry-lookahead (Fase 8).
+  no se tocó en este trabajo. Fue el punto de partida del carry-lookahead
+  (Fase 8), abajo.
+
+## Carry-lookahead dozenal (Fase 8)
+
+Implementado en `crates/dz-gates/src/circuits/adder.rs` como
+`lookahead_add`, con la misma semántica observable que `ripple_add`
+(mismo relleno con `Digit::ZERO` del operando corto, misma regla de limbo
+extra, mismo `Vec` de salida para toda entrada). Verificado exhaustivamente
+en 1 dígito (144 casos × 3 backends) y en 2 dígitos (12⁴ = 20 736 casos).
+
+### Generate y propagate
+
+`generate_propagate(g, x, y)` devuelve dos **booleanos MVL**
+(`Digit::ZERO` / `Digit::MAX`, nunca el dígito 1):
+
+```
+G = MAX_{j=0..11} MIN( lit(j, y), thr(12-j, x) )     "x + y ≥ 12"
+P = lit(11, s)   donde (s, _) = half_adder(x, y)      "x + y = 11"
+```
+
+PLAN.md escribía `G = thr(12−y, x)`, pero eso es taquigrafía: `thr` toma un
+umbral `j: u8` **constante**, no un `Digit`. El circuito real es el mismo
+decodificador de 12 ramas que ya usaba el acarreo del `half_adder`; de
+hecho `G` *es* ese acarreo antes de digitalizarlo con `MIN(·, ONE)`. Por eso
+no hay circuito nuevo aquí ni copia del decodificador: `half_adder` y
+`generate_propagate` comparten un único cuerpo (`half_adder_raw_net`) y el
+`half_adder` público simplemente le añade la digitalización final.
+
+`G` y `P` son mutuamente excluyentes, así que `max` sirve como OR sin
+ambigüedad: `P` exige `x + y = 11 < 12`, luego `G` es falso; y `G ∧ P`
+exigiría `x + y = 23`, imposible con dos dígitos cuyo máximo es 22. Hay un
+test de las 144 combinaciones que lo comprueba.
+
+### La red de prefijos
+
+La recurrencia `c_{i+1} = G_i ∨ (P_i ∧ c_i)` expandida da la forma plana
+
+```
+c_i = G_{i-1} + P_{i-1}·G_{i-2} + P_{i-1}·P_{i-2}·G_{i-3} + …
+```
+
+que ya no tiene dependencia secuencial. Escrita ingenuamente, sin embargo,
+recalcula cada prefijo de propagación en cada posición, y un `fold` a la
+izquierda sobre los términos devolvería la profundidad a O(n) — es decir,
+anularía el experimento entero. La implementación es la evaluación por
+doblado recursivo (Kogge-Stone) de esa misma expansión plana: *es* la
+reducción binaria balanceada del `MAX` de términos y del `MIN` de cada
+prefijo, compartiendo cada prefijo entre todas las posiciones que lo
+necesitan. El operador de bloque
+
+```
+(G_hi, P_hi) ∘ (G_lo, P_lo) = ( G_hi ∨ (P_hi ∧ G_lo),  P_hi ∧ P_lo )
+```
+
+es asociativo, así que tras `⌈log₂ n⌉ ` etapas de doblado `gen[i]` contiene
+el generate de grupo de todo el bloque `0..=i`, que es exactamente el
+acarreo que sale de la posición `i`.
+
+### El dígito de suma final
+
+El acarreo se mantiene como booleano MVL de principio a fin, así que la
+suma final **no** se rehace con un segundo `half_adder` (151 puertas y ~27
+niveles por posición). Es un multiplexor de 5 puertas sobre la semisuma:
+
+```
+out_i = MAX( MIN( lit(0, c_i), s_i ),  MIN( c_i, cycle(s_i) ) )
+```
+
+`lit(0, c)` es el complemento booleano de `c` (cierto justo cuando `c` es
+`ZERO`), de modo que se elige `s_i` si no llega acarreo y `cycle(s_i)` —la
+primitiva sucesor, o sea «+1»— si llega. El caso de desbordamiento
+`s_i = 11` ya está contemplado: eso es precisamente `P_i`, y la red de
+prefijos ya reenvió el acarreo más allá de esta posición. Aquí está la
+mitad de la ganancia en puertas: el ripple gasta dos `half_adder` completos
+por dígito, el lookahead uno solo.
+
+### Cómo se mide la profundidad
+
+`GateCount` cuenta *invocaciones*: es un contador plano sin noción de qué
+puerta alimenta a cuál, y un `Digit` no lleva procedencia, así que la
+profundidad no se puede deducir de él. En vez de duplicar los circuitos
+(una versión «normal» y otra «instrumentada», que acabarían divergiendo),
+los sumadores se escribieron **una sola vez**, genéricos sobre el trait
+`GateNet` de `crates/dz-gates/src/circuits/depth.rs`, con dos
+instanciaciones:
+
+- `Values` — la señal es un `Digit` y cada método delega tal cual al
+  backend. Es lo que usan las funciones públicas, así que sus conteos son
+  bit a bit los de siempre (hay un test de regresión que fija 151 y 1 212).
+- `Levels` — la señal es `Sig { value, level }`: el valor lo sigue
+  calculando el backend y el nivel se propaga en paralelo.
+
+El modelo: entrada primaria o constante = nivel 0; cada invocación de
+primitiva produce `1 + max(niveles de sus entradas)` (`lit`/`thr` son
+unarias en `x`, el índice `j` es estructura del circuito, no señal); la
+profundidad del circuito es el nivel máximo de sus salidas.
+
+**No contamina `GateCount`.** No se añadió ningún campo a `GateCount`
+(`total()` y su `impl Add` siguen sumando exactamente las cinco primitivas
+publicadas). Una pasada con `Levels` sí invoca al backend para calcular
+valores, así que conteo y profundidad se miden en pasadas separadas con
+backends frescos y desechables — la misma disciplina que `lo_hi_table()`
+usa para su backend de síntesis.
+
+### Resultados medidos
+
+Peor caso de propagación (`[↋]×n + [1]`), backend MVL:
+
+| n | puertas ripple | prof. ripple | puertas lookahead | prof. lookahead | ratio puertas | ratio prof. |
+|--:|--:|--:|--:|--:|--:|--:|
+| 1 | 303 | 30 | 157 | 17 | 0,52× | 0,57× |
+| 2 | 606 | 46 | 316 | 18 | 0,52× | 0,39× |
+| 4 | 1 212 | 78 | 640 | 21 | 0,53× | 0,27× |
+| 8 | 2 424 | 142 | 1 300 | 23 | 0,54× | 0,16× |
+| 16 | 4 848 | 270 | 2 644 | 25 | 0,55× | 0,09× |
+
+Profundidad de un `half_adder` de un dígito: **15** (12 de esos 15 niveles
+son el pliegue lineal de 12 `max` del decodificador).
+
+Ajustes: la profundidad del ripple es exactamente afín, `16n + 14` (un
+`full_adder` por posición, cada uno añadiendo 16 niveles a la cadena de
+acarreo). La del lookahead crece logarítmicamente: 15 niveles del
+decodificador compartido, más 2 por cada etapa de doblado que el acarreo de
+esa posición atraviesa, más el mux; de n = 1 a n = 16 sube solo de 17 a 25.
+Las puertas del ripple son `303n` exactamente; las del lookahead,
+`156n + 1 + 3·Σ_k (n − 2^k)`, o sea O(n log n) — pero con una constante
+lineal (156 frente a 303) que la red de prefijos tarda muchísimo en
+compensar.
+
+### Lectura honesta de los números
+
+Se esperaba que el conteo total **subiera** (es el precio habitual del
+lookahead: O(n log n) puertas a cambio de O(log n) de profundidad) y que la
+profundidad lo justificara igualmente. **No ocurrió: el lookahead gana en
+las dos métricas a la vez, y el punto de cruce es n = 1.** Conviene ser
+preciso sobre por qué, porque es un resultado sobre *este* sumador, no
+sobre el carry-lookahead en general:
+
+1. **El `full_adder` del ripple era caro por construcción.** Encadena dos
+   `half_adder` (302 puertas) por posición. El lookahead usa un solo
+   decodificador por posición (150 puertas, más 1 `lit` para `P`) y resuelve
+   el acarreo entrante con un mux de 5 puertas. Ese ahorro de ~150 puertas
+   por dígito domina de sobra al coste O(n log n) de la red de prefijos,
+   que a n = 16 son solo 147 puertas de 2 644 (el 5,6 %).
+2. **El punto de cruce de la profundidad en n = 1 es real pero modesto**
+   (30 → 17): a un dígito no hay ninguna red de prefijos, la mejora viene
+   solo de haber eliminado el segundo `half_adder`. La ganancia
+   *estructural* aparece a partir de n = 2, donde el ripple crece 16
+   niveles por dígito y el lookahead 2 por etapa de doblado.
+3. **El pliegue lineal de 12 `max` del `half_adder` sigue ahí y ahora es el
+   cuello de botella.** De los 17-25 niveles del lookahead, 15 son el
+   decodificador compartido; la red de prefijos aporta 2 por etapa. No se
+   rebalanceó a propósito: el 151 publicado es un resultado de la
+   investigación y un árbol balanceado lo convertiría en 150 en silencio.
+   Rebalancear ese pliegue (12 niveles → 4) bajaría el lookahead de 16
+   dígitos de 25 a ~17 niveles; es el siguiente experimento obvio, y es
+   independiente de esta fase.
+
+Ninguna capa por encima de `dz-gates` usa todavía `lookahead_add`:
+`dz-int` sigue llamando a `ripple_add`. La sustitución es trivial (misma
+firma, misma semántica) pero se deja fuera de esta fase para que los
+números publicados de `multiply`, `div_rem`, etc. sigan siendo comparables
+con los de las fases anteriores.
 
 ## Qué no se construyó (honestidad de alcance)
 
-- Carry-lookahead dozenal (generate/propagate) — Fase 8, no implementado.
-  El diseño en el plan (`G = thr(12-y,x)`, `P = lit(11,s)`) está descrito
-  pero no codificado ni medido.
+- Rebalanceo del pliegue lineal de 12 `max` dentro de `half_adder`. Se
+  midió su coste en profundidad (12 de los 15 niveles) pero no se cambió:
+  reduciría el 151 publicado a 150 y hay que decidirlo como un cambio de
+  resultado, no colarlo dentro de la Fase 8.
+- `dz-int` no adoptó `lookahead_add`; sigue en `ripple_add`.

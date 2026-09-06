@@ -31,7 +31,7 @@ Antes de dar por bueno un cambio: `pwsh tools/lint-purity.ps1`.
 export PATH="$PATH:/c/Users/ADMIN/.cargo/bin"   # bash
 $env:PATH += ";$env:USERPROFILE\.cargo\bin"     # powershell
 
-cargo test --workspace              # 52 tests, ~2 min en debug
+cargo test --workspace              # 65 tests, ~2 min en debug
 cargo test --workspace --release    # mucho más rápido (~segundos)
 cargo clippy --workspace --all-targets
 cargo run -p dz-cli                 # REPL
@@ -59,6 +59,8 @@ Las capas solo llaman hacia abajo: `dz-cli` → `dz-eval` → `dz-parse` → `dz
 | Backend CRT (Z12 ≅ Z4×Z3) + `reconstruction_ops()` | `src/backends/crt.rs` |
 | Oráculo por tabla, `oracle_add`, `oracle_mul` — **solo para tests** | `src/backends/table.rs` |
 | `half_adder`, `full_adder`, `ripple_add` | `src/circuits/adder.rs` |
+| `lookahead_add`, `generate_propagate`, `*_depth` (Fase 8) | `src/circuits/adder.rs` |
+| Trait `GateNet` + `Values`/`Levels` (medición de profundidad) | `src/circuits/depth.rs` |
 | `digit_mul_v1` (shift-add), `digit_mul_v2` (SOP, por defecto), `multiply` | `src/circuits/multiplier.rs` |
 | `ge`, `flag_to_bool` | `src/circuits/comparator.rs` |
 | `ones_complement`, `radix_complement` | `src/circuits/complement.rs` |
@@ -136,6 +138,31 @@ implementa y se registra, sin tocar el núcleo.
 
 v2 es de coste constante; v1 dependía del operando. `half_adder` = 151.
 
+`ripple_add` vs `lookahead_add` (Fase 8), peor caso `[↋]×n + [1]`, backend MVL:
+
+| n | puertas ripple | prof. ripple | puertas lookahead | prof. lookahead |
+|--:|--:|--:|--:|--:|
+| 1 | 303 | 30 | 157 | 17 |
+| 2 | 606 | 46 | 316 | 18 |
+| 4 | 1.212 | 78 | 640 | 21 |
+| 8 | 2.424 | 142 | 1.300 | 23 |
+| 16 | 4.848 | 270 | 2.644 | 25 |
+
+Profundidad de `half_adder` = 15 (12 de esos niveles son el pliegue lineal de
+12 `max`). Contra lo esperado, el lookahead **no** sube el conteo total: gana en
+puertas y en profundidad desde n = 1, porque el `full_adder` del ripple encadena
+dos `half_adder` por posición y el lookahead usa uno solo más un mux de 5
+puertas. La profundidad del ripple es afín (`16n + 14`); la del lookahead,
+logarítmica. Detalle y lectura honesta en `docs/01-diseno-sumador.md`.
+
+El modelo de profundidad vive en `circuits/depth.rs`: entrada/constante = nivel
+0, cada primitiva = `1 + max(niveles de entrada)`. Los circuitos se escriben
+**una sola vez**, genéricos sobre `GateNet`, e instanciados con `Values`
+(`S = Digit`, coste cero, es lo que usan las funciones públicas) o `Levels`
+(`S = Sig { value, level }`). **No se añadió ningún campo a `GateCount`**; una
+pasada con `Levels` sí invoca al backend, así que conteo y profundidad se miden
+en pasadas separadas con backends frescos.
+
 **CRT no compensa.** Misma topología que MVL pero necesita reconstruir el dígito
 para toda comparación de orden (`min`/`max`/`thr`): 176 reconstrucciones en un
 `half_adder`, 13.938 en un `multiply` 3×2. La ventaja de descomponer nunca llega.
@@ -145,7 +172,10 @@ para toda comparación de orden (`min`/`max`/`thr`): 176 reconstrucciones en un
 - DFP sin subnormales ni cero con signo (`Dz` cero no tiene signo por construcción).
 - `evaluate_dfp` redondea una vez al final de la expresión, no tras cada operación,
   así que `1/0` dentro de una expresión falla en la etapa racional en vez de dar `Inf`.
-- Sin carry-lookahead (Fase 8) ni GUI Tauri (Fase 6).
+- Sin GUI Tauri (Fase 6). El carry-lookahead (Fase 8) ya existe (`lookahead_add`)
+  pero `dz-int` sigue usando `ripple_add`; la sustitución es trivial y se dejó
+  fuera para que los números publicados de `multiply`/`div_rem` sigan siendo
+  comparables con los de fases anteriores.
 - `1/5` no termina en base 12; el REPL lo avisa en vez de truncar en silencio.
 
 ## Convenciones

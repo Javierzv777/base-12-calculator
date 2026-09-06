@@ -186,9 +186,9 @@ Ver `CLAUDE.md` para rutas y comandos.
 | **5. Fraccionarios** | Punto fijo, racionales exactos, DFP | **Hecha** — `1÷3` da `1/3` exacto |
 | **6. GUI** | App Tauri | Pendiente |
 | **7. Panel investigación** | Conteo de puertas + visor de circuito | Pendiente |
-| **8. Extensiones** | Carry-lookahead, multiplicador v2, `DozOp` | Parcial — v2 hecho, resto pendiente |
+| **8. Extensiones** | Carry-lookahead, multiplicador v2, `DozOp` | Parcial — v2 y `lookahead_add` hechos, `DozOp` en uso |
 
-Estado: 52 tests, clippy limpio, lint de pureza con 4 reglas. El DFP se adelantó
+Estado: 65 tests, clippy limpio, lint de pureza con 4 reglas. El DFP se adelantó
 de la Fase 8 a la 5; el multiplicador v2 se adelantó de la 8 a antes de la GUI
 porque su coste bloqueaba los property tests de racionales.
 
@@ -196,15 +196,30 @@ porque su coste bloqueaba los property tests de racionales.
 
 ## 10bis. Lo que falta, en orden sugerido
 
-### A. Carry-lookahead dozenal (Fase 8) — pequeño, autocontenido
-Único cambio en `dz-gates/src/circuits/adder.rs`, sin tocar capas superiores.
-- `G = thr(12−y, x)` (genera), `P = lit(↋, s)` (propaga: la suma del dígito es
-  exactamente ↋).
-- Comparar contra `ripple_add` en puertas **y en profundidad de circuito**. La
-  profundidad es el número que justifica el lookahead; el conteo total puede
-  incluso subir. Medir ambas.
-- Entregable: fila nueva en `examples/gate_counts.rs` y sección en
-  `docs/01-diseno-sumador.md`.
+### A. Carry-lookahead dozenal (Fase 8) — **hecho**
+`lookahead_add` en `dz-gates/src/circuits/adder.rs`, sin tocar capas superiores.
+- `G` no es literalmente `thr(12−y, x)` como decía este plan: `thr` toma un
+  umbral **constante**, no un `Digit`. El circuito real es el decodificador
+  `MAX_j MIN(lit(j,y), thr(12−j,x))`, que es el acarreo del `half_adder` antes
+  de digitalizarlo. `P = lit(↋, s)` sí es literal.
+- Red de prefijos por doblado recursivo (Kogge-Stone) sobre el operador de
+  bloque `(G,P)∘(G',P')`: reducciones binarias balanceadas, prefijos de
+  propagación compartidos. Nada de `fold` lineal.
+- Profundidad medida con un trait `GateNet` nuevo (`circuits/depth.rs`) y dos
+  instanciaciones, `Values` y `Levels`, sobre **un solo** cuerpo de circuito.
+  `GateCount` no se tocó.
+- **Resultado, y fue una sorpresa:** el lookahead gana en las dos métricas a la
+  vez desde n = 1 (no solo en profundidad). 16 dígitos: 4 848 → 2 644 puertas
+  (0,55×) y 270 → 25 niveles (0,09×). La causa es que el `full_adder` del ripple
+  encadenaba dos `half_adder` por posición y el lookahead usa uno solo más un
+  mux de 5 puertas.
+- Entregado: filas en `examples/gate_counts.rs`, sección «Carry-lookahead
+  dozenal (Fase 8)» en `docs/01-diseno-sumador.md`, 13 tests en
+  `dz-gates/tests/lookahead.rs`.
+- **Pendiente derivado:** el pliegue lineal de 12 `max` del `half_adder` es
+  ahora el cuello de botella de profundidad (15 de los 17-25 niveles). No se
+  rebalanceó a propósito: convertiría el 151 publicado en 150 y eso hay que
+  decidirlo aparte. `dz-int` tampoco adoptó `lookahead_add` todavía.
 
 ### B. GUI Tauri (Fase 6) — el salto grande
 - Teclado de 12 dígitos, display, historial, memoria.

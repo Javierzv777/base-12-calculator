@@ -2,7 +2,10 @@
 //! `docs/00-fundamentos.md` and `docs/01-diseno-sumador.md`. Run with:
 //!   cargo run -p dz-gates --example gate_counts
 
-use dz_gates::circuits::{digit_mul_v1, digit_mul_v2, half_adder, multiply, ripple_add};
+use dz_gates::circuits::{
+    digit_mul_v1, digit_mul_v2, half_adder, half_adder_depth, lookahead_add, lookahead_add_depth,
+    multiply, ripple_add, ripple_add_depth,
+};
 use dz_gates::{CrtGates, Digit, DozGates, MvlGates};
 
 fn digits(n: u32) -> Vec<Digit> {
@@ -91,5 +94,55 @@ fn main() {
     println!(
         "  (CRT reconstruction ops for this call: {})",
         g.reconstruction_ops()
+    );
+
+    // ---------------------------------------------------------------
+    // Phase 8: ripple-carry vs carry-lookahead, gates AND circuit depth.
+    //
+    // Depth is measured in a *separate pass* with a *fresh, throwaway*
+    // backend whose `GateCount` is never read, exactly as `lo_hi_table()`
+    // does for its synthesis backend: the depth-instrumented run still
+    // drives the gates to compute values, so mixing the two passes would
+    // contaminate the published counts above.
+    // ---------------------------------------------------------------
+    println!();
+    println!("Phase 8 -- ripple-carry vs carry-lookahead (MVL backend)");
+    println!(
+        "{:<6} {:>12} {:>8} {:>12} {:>8}",
+        "n", "ripple gts", "depth", "lookahd gts", "depth"
+    );
+    for n in [1usize, 2, 4, 8, 16] {
+        // Worst case for a carry chain: all-eleven plus one, so the carry
+        // has to travel the whole width.
+        let a = vec![Digit::MAX; n];
+        let b = {
+            let mut v = vec![Digit::ZERO; n];
+            v[0] = Digit::ONE;
+            v
+        };
+
+        let g = MvlGates::new();
+        let _ = ripple_add(&g, &a, &b);
+        let ripple_gates = g.cost().total();
+
+        let g = MvlGates::new();
+        let _ = lookahead_add(&g, &a, &b);
+        let look_gates = g.cost().total();
+
+        let g = MvlGates::new();
+        let ripple_depth = ripple_add_depth(&g, &a, &b);
+        let g = MvlGates::new();
+        let look_depth = lookahead_add_depth(&g, &a, &b);
+
+        println!(
+            "{:<6} {:>12} {:>8} {:>12} {:>8}",
+            n, ripple_gates, ripple_depth, look_gates, look_depth
+        );
+    }
+
+    let g = MvlGates::new();
+    println!(
+        "half_adder depth (linear MAX fold, 12 levels): {}",
+        half_adder_depth(&g, Digit::new(7).unwrap(), Digit::new(9).unwrap())
     );
 }
