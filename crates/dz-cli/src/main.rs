@@ -200,6 +200,9 @@ fn print_usage() {
     println!("Research:");
     println!("  trace add|sub|mul a b       step-by-step circuit run (integers only)");
     println!("  compare <operation> <args>  the same call on all three gate backends");
+    println!("  chain <display>             convert a formatted dozenal result back to");
+    println!("                              --input-base (the reverse of reading base 10);");
+    println!("                              reads --backend and --input-base like any call");
     println!();
     println!("Flags:");
     println!("  --mode rational|fixed|dfp   display mode (default: rational)");
@@ -417,6 +420,11 @@ enum Command {
         b: String,
     },
     Compare(Operation),
+    /// The reverse of `--input-base 10`: rewrite an already-formatted
+    /// dozenal result back into base ten (`dz_api::chain_operand`,
+    /// `docs/09-encadenado-de-resultado.md`). One-shot only, same as
+    /// `trace`/`compare`: there is no session state to chain onto here.
+    Chain(String),
 }
 
 fn trace_kind_error(name: &str) -> String {
@@ -463,6 +471,17 @@ fn build_command(positional: &[String]) -> Result<Command, String> {
                 );
             }
             Ok(Command::Compare(build_operation(rest)?))
+        }
+        "chain" => {
+            let rest = &positional[1..];
+            if rest.len() != 1 {
+                return Err(format!(
+                    "'chain' takes a single formatted dozenal result, e.g. 'chain 11;6 \
+                     --input-base 10', got {} argument(s)",
+                    rest.len()
+                ));
+            }
+            Ok(Command::Chain(rest[0].clone()))
         }
         _ => Ok(Command::Calc(build_operation(positional)?)),
     }
@@ -744,6 +763,7 @@ fn run_command(args: &[String]) -> i32 {
     match command {
         Command::Trace { kind, a, b } => run_trace(kind, &a, &b, &flags),
         Command::Compare(op) => run_compare(&op, &flags),
+        Command::Chain(display) => run_chain(&display, &flags),
         Command::Calc(op) => run_calc(op, &flags),
     }
 }
@@ -773,6 +793,83 @@ fn run_calc(operation: Operation, flags: &Flags) -> i32 {
                     if let Some(line) = gate_line(&response) {
                         println!("{}", line);
                     }
+                }
+            }
+            0
+        }
+        Err(error) => {
+            if flags.json {
+                println!("{}", error_json_line(&error));
+            } else {
+                eprintln!("error: {}", error);
+            }
+            report_exit_code(&error)
+        }
+    }
+}
+
+/// Escape a string for the hand-written JSON this file emits, the same
+/// four characters `dz-api::escape_json` covers. `dz-api`'s version is
+/// `pub(crate)`, so a chain result -- which never crosses `dz-api`'s own
+/// `to_json_line` -- needs its own copy rather than a visibility change to
+/// a function nothing else outside that crate should call.
+fn escape_json_local(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+fn gate_count_json_local(count: &GateCount) -> String {
+    format!(
+        "{{\"cycle\":{},\"min\":{},\"max\":{},\"lit\":{},\"thr\":{},\"total\":{}}}",
+        count.cycle,
+        count.min,
+        count.max,
+        count.lit,
+        count.thr,
+        count.total()
+    )
+}
+
+/// `dz-cli chain <display>`: the reverse of `--input-base 10` entry --
+/// rewrite an already-formatted dozenal result back into `--input-base`
+/// (`dz_api::chain_operand`, `docs/09-encadenado-de-resultado.md`). Unlike
+/// `trace`/`compare` this has no request struct of its own: `chain_operand`
+/// already takes exactly the backend and base this CLI's flags carry.
+///
+/// The converted text is printed as-is, never through `shown()`: base ten
+/// has no dozenal glyphs to translate, so running it through the
+/// presentation alphabet would be a no-op at best.
+fn run_chain(display: &str, flags: &Flags) -> i32 {
+    match dz_api::chain_operand(flags.backend, flags.input_base, display) {
+        Ok((text, count)) => {
+            if flags.json {
+                println!(
+                    "{{\"ok\":true,\"display\":\"{}\",\"gate_count\":{}}}",
+                    escape_json_local(&text),
+                    gate_count_json_local(&count)
+                );
+            } else {
+                println!("{}", text);
+                if flags.gates {
+                    println!(
+                        "gates: cycle={} min={} max={} lit={} thr={} total={}",
+                        count.cycle,
+                        count.min,
+                        count.max,
+                        count.lit,
+                        count.thr,
+                        count.total()
+                    );
                 }
             }
             0
@@ -838,6 +935,7 @@ fn print_repl_help() {
     println!("                            dozenal, and base 10 costs gates to read)");
     println!("  Session:  :mem (recall)  :mem+ (store last result)  :memc (clear)");
     println!("            :history   :clear   :session");
+    println!("            :chain <display> (convert a formatted result back to :inputbase)");
     println!("  Research: run 'dz-cli trace add EEE 1' or 'dz-cli compare mul 25 34'");
 }
 
@@ -1030,6 +1128,31 @@ fn run_repl() {
                     println!("scale = {} fractional digits", scale);
                 }
                 None => println!("scale must be a small positive number of digits"),
+            }
+            continue;
+        }
+        // The reverse of `:inputbase 10` reading: rewrite an already
+        // formatted dozenal result back into the session's input base
+        // (`dz_api::chain_operand`). Session-scoped like `:backend`/
+        // `:mode`, not history-scoped -- it takes whatever text is typed
+        // after it, not necessarily the last result.
+        if let Some(rest) = line.strip_prefix(":chain ") {
+            match dz_api::chain_operand(session.backend, session.input_base, rest.trim()) {
+                Ok((text, count)) => {
+                    println!("{}", text);
+                    if session.show_gates {
+                        println!(
+                            "gates: cycle={} min={} max={} lit={} thr={} total={}",
+                            count.cycle,
+                            count.min,
+                            count.max,
+                            count.lit,
+                            count.thr,
+                            count.total()
+                        );
+                    }
+                }
+                Err(error) => println!("error: {}", error),
             }
             continue;
         }

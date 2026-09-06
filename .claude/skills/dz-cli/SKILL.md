@@ -281,6 +281,48 @@ Add a path to write a file instead of printing: `--csv=out.csv`,
 `--csv-summary=context.csv`. The attached-value spelling is required —
 the operands are positional, so `--csv 5` would be ambiguous.
 
+### "Convert a result back to base 10"
+
+`chain` is the reverse of reading `--input-base 10`: it takes an
+already-formatted dozenal result (the exact text `dz-api` would print as
+`Response.display`, canonical glyphs and all -- `X`/`E` are not accepted
+here, only `0-9`/`↊`/`↋`) and rewrites it into `--input-base`, via
+`dz_api::chain_operand` (`docs/09-encadenado-de-resultado.md`). It is a
+one-shot command, like `trace`/`compare`: there is no session to chain onto
+from the command line.
+
+```
+$ dz-cli chain 10↋ --input-base 10
+155
+```
+
+`10↋` is dozenal (one twelve, zero ones, eleven) = 155 decimal. With
+`--gates` the write-back's cost shows up, because unlike reading base 12
+(free -- the `Vec` position already *is* the place value), writing base 10
+is restoring division, the most expensive circuit in the project:
+
+```
+$ dz-cli chain 11;6 --input-base 10 --gates
+162/12
+gates: cycle=11616 min=13916 max=10783 lit=7944 thr=2424 total=46683
+```
+
+The result is an exact fraction (`162/12`, not `13.5`) for the same reason
+`--input-base 10` never emits a truncated decimal on the way in: detecting
+"this has a finite decimal" would mean factoring the denominator, and the
+fraction is already exact and valid text. And `--json` gets the same
+two-field shape as every other one-line JSON output in this CLI:
+
+```
+$ dz-cli chain "1/5" --input-base 10 --json
+{"ok":true,"display":"1/5","gate_count":{"cycle":0,"min":24,"max":24,"lit":24,"thr":24,"total":96}}
+```
+
+`--backend` applies here too (`chain --backend crt` measures the CRT
+reconstructions of the same write-back). `--input-base 12` is legal but a
+no-op: twelve is the identity base, so the text comes back unchanged with an
+empty gate count.
+
 ### "What can it compute?"
 
 ```
