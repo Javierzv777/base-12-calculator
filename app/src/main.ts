@@ -233,6 +233,7 @@ function initBase10Tool(): void {
   const swapButton = element<HTMLButtonElement>("base10-swap");
   const undoButton = element<HTMLButtonElement>("base10-undo");
   const status = element<HTMLSpanElement>("base10-status");
+  const selectionLabel = element<HTMLSpanElement>("base10-selection");
 
   /** Which way the button reads the box. Starts on the direction of section 2. */
   let direction: "to12" | "to10" = "to12";
@@ -310,6 +311,54 @@ function initBase10Tool(): void {
     status.title = detail;
   }
 
+  /**
+   * The selected range inside the box, or `null` when nothing is selected
+   * (docs/08 section 2.5).
+   *
+   * `selectionStart`/`selectionEnd` are properties of the input, not of the
+   * document's focus, so they survive the blur that pressing a button causes --
+   * which is exactly why the click handler reads them FIRST, before anything
+   * else moves the caret.
+   */
+  function selectedRange(): { start: number; end: number } | null {
+    const start = expression.selectionStart;
+    const end = expression.selectionEnd;
+    if (start === null || end === null || end <= start) {
+      return null;
+    }
+    return { start, end };
+  }
+
+  /**
+   * The label is governed by the STATE of the selection, never by a list of the
+   * events that can change it -- the same lesson the whitelist of section 2.3
+   * left. Dragging with the mouse, `shift`+arrows, `ctrl`+`a`, a double click,
+   * the system's own edit menu and whatever route the platform adds next all
+   * end in the same place: the range on the element.
+   */
+  let selectionShown = false;
+  function paintSelection(): void {
+    const shown = selectedRange() !== null;
+    if (shown !== selectionShown) {
+      selectionShown = shown;
+      selectionLabel.hidden = !shown;
+    }
+  }
+
+  // `selectionchange` on the document is the modern route and Chromium (so
+  // WebView2) does fire it for `<input>`, but it is only the trigger: what is
+  // read is always the range itself, so a route that fails to fire it is
+  // caught by the frame loop below instead of being missed.
+  document.addEventListener("selectionchange", paintSelection);
+  // Cheap belt to that braces: two integer comparisons a frame. It costs
+  // nothing measurable and it means the label cannot get stuck showing a
+  // selection that is no longer there.
+  const followSelection = (): void => {
+    paintSelection();
+    requestAnimationFrame(followSelection);
+  };
+  requestAnimationFrame(followSelection);
+
   function paintDirection(): void {
     const to12 = direction === "to12";
     convertButton.textContent = to12 ? "10→12" : "12→10";
@@ -328,23 +377,51 @@ function initBase10Tool(): void {
   });
 
   convertButton.addEventListener("click", () => {
-    const source = expression.value;
+    // Read the range BEFORE anything else: this click already blurred the box,
+    // and every later step (`focus()`, writing `value`) can move the caret.
+    const range = selectedRange();
+    const previous = expression.value;
+    // With a selection the scope is that slice, handed to the module as a text
+    // of its own -- `base10.ts` does not change (section 2.5).
+    const source = range === null ? previous : previous.slice(range.start, range.end);
     const conversion =
       direction === "to12"
         ? convertBase10Text(source, style())
         : convertBase12Text(source, style());
     const target = direction === "to12" ? "12" : "10";
+
+    /** Give the box back its focus and, when there was one, its selection. */
+    const restore = (start: number, end: number): void => {
+      expression.focus();
+      expression.setSelectionRange(start, end);
+    };
+
     if (!conversion.changed) {
       retire();
       say(
         "nada que convertir",
-        `el texto se lee igual en base ${target}, así que no se cambió nada`,
+        range === null
+          ? `el texto se lee igual en base ${target}, así que no se cambió nada`
+          : `la selección se lee igual en base ${target}, así que no se cambió nada`,
       );
-      expression.focus();
+      if (range === null) {
+        expression.focus();
+      } else {
+        restore(range.start, range.end);
+      }
       return;
     }
-    expression.value = conversion.text;
+    expression.value =
+      range === null
+        ? conversion.text
+        : previous.slice(0, range.start) + conversion.text + previous.slice(range.end);
     const detail: string[] = [`convertido a base ${target}`];
+    if (range !== null) {
+      // Say it, so a selection cutting a number in half does not read as a bug:
+      // `12 + 11` with `12 + 1` selected leaves `10 + 11`, because the halves
+      // convert on their own (section 2.5).
+      detail.push("solo se convirtió la parte seleccionada");
+    }
     if (conversion.keptDozenal) {
       // A text with dozenal glyphs is not readable as base 10 as a whole, so
       // say plainly that only the decimal runs moved (section 2.0).
@@ -358,14 +435,24 @@ function initBase10Tool(): void {
       // gone: it says the expansion goes on, and it never reaches the box.
       detail.push(`un decimal no termina en esa base y se truncó a la escala → ${conversion.preview}`);
     }
-    say(`base ${target}`, `${detail.join("; ")}.`);
+    say(
+      range === null ? `base ${target}` : `base ${target} (selección)`,
+      `${detail.join("; ")}.`,
+    );
     // Armed here, after the write, because the value at this instant is what
-    // the offer is anchored to (section 2.3).
-    undoTo = source;
+    // the offer is anchored to (section 2.3). Both ends are the WHOLE value:
+    // undo does not know, and does not need to know, that this was partial.
+    undoTo = previous;
     anchor = expression.value;
     undoButton.hidden = false;
     watch();
-    expression.focus();
+    if (range === null) {
+      expression.focus();
+    } else {
+      // Put the selection back over the converted text -- a different length
+      // than what was selected -- so the user sees exactly what changed.
+      restore(range.start, range.start + conversion.text.length);
+    }
   });
 
   undoButton.addEventListener("click", () => {

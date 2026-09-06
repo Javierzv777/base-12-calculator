@@ -705,6 +705,16 @@ table.steps tr.pending td {
   min-width: 0;
 }
 
+/* The scope label (docs/08, section 2.5). It sits right next to the button and
+   says that the click will only reach the selected part. It is a label, never a
+   control: no border, no pointer, nothing to click. */
+.base10-selection {
+  flex: 0 0 auto;
+  color: var(--approx);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* The always-available half of the helper (docs/08, section 2.0). Quiet by
    default: it is a tool that sits next to the calculator, not a calculator
    key. */

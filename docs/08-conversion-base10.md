@@ -707,3 +707,183 @@ llama de verdad.
   ningún conteo de puertas.** Los ficheros del cambio son `app/index.html`,
   `app/src/styles.css`, `app/src/main.ts`, `app/src/base10.ts` y
   `app/tests/base10.test.ts`.
+
+---
+
+## 2.5 Convertir solo la selección
+
+Pedido: cuando haya una parte del input seleccionada, aparece junto al botón de
+convertir un texto «convertir selección», y al pulsar el botón se convierte
+**solo** ese trozo.
+
+### El rótulo
+
+Vive en la fila, junto a `10→12`, y aparece **solo** mientras hay una selección
+no vacía dentro del input. Es una etiqueta de estado, no un segundo botón: el
+botón sigue siendo uno y lo que cambia es su alcance. Dos botones que convierten
+obligarían a elegir cuál mirar cada vez.
+
+La selección cambia por muchas vías (arrastrar con el ratón, `shift`+flechas,
+`ctrl`+`a`, doble clic, la barra de menú del sistema), así que el rótulo se
+gobierna observando **el estado de la selección**, no enumerando eventos —
+misma lección que dejó la lista blanca del §2.3.
+
+### La trampa: el foco
+
+Pulsar un botón le quita el foco al input. `selectionStart`/`selectionEnd`
+sobreviven al desenfoque, pero el manejador actual termina con
+`expression.focus()`, y volver a enfocar puede reposicionar el cursor. Así que
+el trozo a convertir se lee **al empezar** el manejador, antes de tocar nada, y
+al terminar se restaura la selección sobre el texto ya convertido, para que el
+usuario vea qué cambió y pueda encadenar otra acción.
+
+### Qué se convierte, exactamente
+
+El trozo seleccionado, tal cual, como si fuera un texto independiente: se le
+pasa a `convertBase10Text`/`convertBase12Text` y su resultado sustituye a la
+selección dentro del valor completo. El módulo `base10.ts` **no cambia**; esto
+es recorte y pegado alrededor de una llamada que ya existe.
+
+Consecuencia que hay que aceptar y decir: **una selección que parte un número
+por la mitad convierte las mitades por separado.** Con `12 + 11`, seleccionar
+`12 + 1` da `10 + 1` y el `1` que queda fuera no se toca, así que la caja acaba
+en `10 + 11`. Es lo que pidió el pedido —convertir lo seleccionado— y es
+predecible; la alternativa (extender la selección a los límites del número) sería
+convertir cosas que el usuario no marcó, que es peor. La línea de estado dice
+que se convirtió la selección, para que el resultado no parezca un fallo.
+
+Si la conversión del trozo no cambia nada, se dice igual que hoy («nada que
+convertir»), sin tocar el input.
+
+### Deshacer
+
+Sin cambios de regla: `undoTo` guarda el valor **completo** de antes, y el
+ancla sigue siendo el valor completo de después. La lista blanca del §2.3 no se
+entera de que la conversión fue parcial.
+
+---
+
+### 6.17 Convertir solo la selección (§2.5)
+
+Ficheros tocados: `app/index.html`, `app/src/styles.css` y `app/src/main.ts`.
+**`app/src/base10.ts` no cambió ni una línea**, que era la prueba de que el
+diseño no se torcía: esto es recorte y pegado alrededor de una llamada que ya
+existía.
+
+- `app/index.html` — un `span#base10-selection` con el texto «convertir
+  selección», `hidden` de nacimiento, entre la línea de estado y el botón
+  `10→12`. Es lo primero que el usuario lee a la izquierda del botón, que es
+  donde mira antes de pulsarlo.
+- `app/src/styles.css` — `.base10-selection`, en el color de acento (`--approx`),
+  sin borde, sin cursor de mano y sin `display` propio. Lo del `display` es
+  deliberado: el fallo del §6.7 fue justo ese, una regla de autor que ganaba al
+  `[hidden]` del navegador. Sin `display` en la regla, `hidden` funciona solo.
+- `app/src/main.ts` — dentro de `initBase10Tool`: `selectedRange()`,
+  `paintSelection()`, el observador de la selección, y el manejador del botón
+  reescrito para trabajar sobre un rango.
+
+#### Cómo se observa la selección
+
+`selectedRange()` lee `selectionStart`/`selectionEnd` y devuelve `null` cuando
+el rango está vacío. `paintSelection()` enseña u oculta el rótulo según eso, y
+**nunca según qué evento pasó**. El rótulo se repinta desde dos disparadores:
+
+1. `document.addEventListener("selectionchange", …)`, la vía moderna. Se
+   comprobó en pantalla que WebView2 (Chromium) la dispara para `<input>`.
+2. Un bucle de `requestAnimationFrame` que llama a lo mismo. Cuesta dos
+   comparaciones de enteros por fotograma y sólo toca el DOM cuando el estado
+   cambia de verdad (`selectionShown`), así que es gratis en la práctica.
+
+El segundo no es redundancia por miedo: es la misma lección de la lista blanca
+del §2.3. Lo que se lee siempre es **el rango**, no el evento, así que una vía
+que no dispare `selectionchange` — una futura, o el menú del sistema en una
+versión distinta del WebView — la coge el fotograma siguiente en vez de dejar el
+rótulo mintiendo. Enumerar eventos (ratón, `shift`+flechas, `ctrl`+`a`, doble
+clic…) es exactamente la lista negra que este documento ya decidió no volver a
+escribir.
+
+#### El foco, que era la trampa
+
+El manejador del botón lee el rango en su **primera** línea, antes de tocar
+nada, porque para cuando corre el input ya está desenfocado y todo lo que viene
+después (`focus()`, escribir `value`) puede mover el caret.
+`selectionStart`/`selectionEnd` sobreviven al desenfoque, así que leer temprano
+basta y no hizo falta ningún `mousedown`/`preventDefault` sobre el botón para
+retener el foco — que era la otra salida, y habría cambiado el comportamiento de
+un control que ya funcionaba.
+
+Al terminar, en vez del `expression.focus()` de siempre, se llama a
+`restore(start, end)`: enfoca y vuelve a marcar el trozo, ahora sobre el **texto
+convertido**, que tiene otra longitud (`range.start + conversion.text.length`).
+El usuario ve marcado exactamente lo que cambió, el rótulo sigue en pie y puede
+encadenar otra acción. Cuando no había selección, se conserva el `focus()` seco
+de antes. En el camino de «nada que convertir» la selección también se restaura,
+para que el input quede como estaba.
+
+#### El alcance y el mensaje
+
+Con selección, el trozo va a `convertBase10Text`/`convertBase12Text` **como
+texto independiente** y su resultado se pega en el hueco:
+`previous.slice(0, start) + conversion.text + previous.slice(end)`. Sin
+selección, todo sigue igual que antes.
+
+La línea de estado dice `base 12 (selección)` en vez de `base 12`, y el
+`title` gana «solo se convirtió la parte seleccionada». Es lo que evita que el
+caso del §2.5 —`12 + 11` con `12 + 1` marcado, que deja `10 + 11`— se lea como
+un fallo: las dos mitades del número se convierten por separado porque eso es lo
+que se pidió convertir. **No se extiende la selección a los límites del
+número**, que convertiría texto que el usuario no marcó.
+
+#### Deshacer
+
+Sin cambios de regla, tal como manda el §2.5. `undoTo` guarda `previous`, el
+valor **completo** de antes, y `anchor` es el valor completo de después. La
+lista blanca del §2.3 compara valores enteros y no se entera de que la
+conversión fue parcial; ni el bucle de vigilancia ni la comprobación previa al
+clic necesitaron una línea nueva.
+
+### 6.18 Verificación de §2.5
+
+- `node app/tests/base10.test.ts` → **108/108**, los mismos de antes y sin
+  ninguno nuevo. **Desviación consciente:** no se añadieron tests. La lógica
+  nueva es entera de DOM —leer `selectionStart`/`selectionEnd`, enseñar un
+  `span`, devolver el foco— y ese fichero prueba el módulo, que no cambió;
+  montar un andamiaje de DOM falso sólo para `main.ts` sería más código de
+  prueba que de producción y probaría el andamiaje. La comprobación de esta
+  feature es la de pantalla, que es donde vive.
+- `cd app && npm run build` (incluye `tsc --noEmit`): pasa.
+- `cargo test --workspace --release`: **190 tests, 0 fallos**, igual que antes —
+  el control de que no se salió del alcance. `pwsh tools/lint-purity.ps1`: verde.
+- En pantalla, con el `.exe` de `npm run tauri build -- --no-bundle`, capturando
+  con `PrintWindow` + `PW_RENDERFULLCONTENT` y actuando con `AttachThreadInput` +
+  `SetWindowPos(HWND_TOPMOST)` + `mouse_event`/`SendKeys`:
+  - al arrancar, la fila muestra `10→12` y `⇄` y **ningún rótulo**;
+  - `12 + 11` y `shift`+`←`+`←` → aparece «convertir selección» junto al botón;
+  - `→` (selección vacía) → el rótulo desaparece, y el deshacer no se retira,
+    porque mover el caret no cambia el `value` (§2.3);
+  - `12 + 11` con `11` marcado + botón → `12 + ↋`, con «base 12 (selección)», el
+    `↺` armado y el `↋` marcado;
+  - `↺` devuelve `12 + 11` entero; volver a convertir y teclear un `3` retira el
+    `↺` y el mensaje;
+  - `12 + 11` con `12 + 1` marcado + botón → **`10 + 11`**, sin excepción ni
+    texto raro, con el mensaje diciendo que fue la selección;
+  - `ctrl`+`a` + botón → `10 + ↋`, idéntico a convertir todo;
+  - **doble clic** sobre `12` (vía puramente de ratón, sin teclado) → el rótulo
+    aparece igual, que es la prueba de que se observa el estado y no una lista
+    de teclas;
+  - selección sin nada que convertir (`5 + 3` con `ctrl`+`a`) → «nada que
+    convertir», el input intacto y la selección conservada.
+
+### 6.19 Lo que NO se hizo de §2.5
+
+- **No hay un segundo botón.** El rótulo es una etiqueta de estado; el botón
+  sigue siendo uno y lo único que cambia es su alcance, como pide el §2.5.
+- **No se extiende la selección a los límites del número**, ni se avisa de que
+  la selección parte uno por la mitad. Se convierte lo marcado y se dice que fue
+  la selección; adivinar sería convertir lo que el usuario no pidió.
+- **El botón `⇄` y el `↺` no cambian de alcance**: invertir la dirección sigue
+  retirando la oferta, y el deshacer sigue restaurando el valor completo.
+- **No se toca la selección cuando no hay conversión**, más allá de devolverla
+  tal cual estaba.
+- **No se tocó `base10.ts`**, ni `keypad.ts`, `history.ts`, `research.ts`,
+  `alphabet.ts` o `api.ts`, ni nada de `crates/`.
