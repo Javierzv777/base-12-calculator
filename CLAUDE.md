@@ -324,6 +324,15 @@ de export), `main.ts`. El frontend nunca decide semántica dozenal: recibe
 strings ya formateados, y en el panel de investigación recibe además los pasos
 como `char` sueltos — no puede sumar dos `char`.
 
+`main.ts` guarda además el **encadenado sobre el resultado** (`docs/09`): tras
+un Enter o un `=` con éxito queda armada una oferta, y el primer carácter que
+entra decide — si es un operador binario del parser, la caja se reemplaza por el
+resultado *que se ve* más ese operador; cualquier otro carácter la gasta sin
+sembrar. La `~` de aproximado se quita (el lexer la rechaza) y el resultado se
+envuelve en paréntesis salvo que sea un átomo, porque sembrar `583/2` crudo ante
+un `^2` da otro número. Las dos vías de entrada pasan por el mismo embudo
+(`chainOn`): el teclado en pantalla por `insert()`, el físico por `keydown`.
+
 El export CSV usa el diálogo nativo «Guardar como» (`@tauri-apps/plugin-dialog`)
 para elegir la ruta; el documento lo arma `dz-api` y lo escribe
 `research::export_csv` en Rust. `@tauri-apps/plugin-fs`/`tauri-plugin-fs` es la
@@ -344,6 +353,8 @@ default.json`) y contra la que se registra la ruta elegida.
   se implementó y en qué se desvió
 - `docs/07-alfabeto-configurable.md` — alfabeto de presentación configurable y,
   en §5, lo que se implementó, en qué se desvió y lo que **no** se hizo
+- `docs/09-encadenado-de-resultado.md` — encadenar sobre el resultado tras un
+  Enter y, en §5, lo que se implementó y en qué se desvió
 - `tools/lint-purity.ps1` — 4 reglas; la 4 detecta `*`/`%`/`/` nativos fuera de
   `backends/`, que es la clase de fallo que las otras tres no veían
 

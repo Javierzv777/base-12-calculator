@@ -126,6 +126,128 @@ function showError(message: string): void {
   notes.replaceChildren();
 }
 
+// ---------------------------------------------------------------------------
+// Chaining on the result (`docs/09-encadenado-de-resultado.md`).
+//
+// After a successful evaluation, the FIRST character that arrives decides: an
+// operator replaces the whole box with the result and that operator (`5+3`
+// Enter, `*` -> `8*`); anything else just types, and the offer is gone either
+// way. Seeding is text movement only -- nothing here calls `calc`.
+// ---------------------------------------------------------------------------
+
+/**
+ * The binary operators of the language, read off the parser
+ * (`crates/dz-parse/src/parser.rs`): `+ -`, then `* / %`, then `^`. The two
+ * unicode spellings the lexer also accepts for times and divide are in the set
+ * too, so a chain never depends on which of two synonyms was typed.
+ */
+const OPERATORS = new Set(["+", "-", "*", "/", "%", "^", "×", "÷"]);
+
+/** The text to seed with, ready to write, or `null` when nothing is armed. */
+let chainSeed: string | null = null;
+// The value the box had when the offer was armed. Same whitelist shape as the
+// base-10 undo (`docs/08` section 2.3): the offer belongs to THIS text, and any
+// other value the box takes -- restoring from history, a conversion, a route
+// added later -- retires it, instead of us trying to list the ways it can
+// change. Programmatic writes fire no event, so a frame loop does the comparing.
+let chainAnchor: string | null = null;
+let chainWatching = 0;
+
+function disarmChain(): void {
+  chainSeed = null;
+  chainAnchor = null;
+  if (chainWatching !== 0) {
+    cancelAnimationFrame(chainWatching);
+    chainWatching = 0;
+  }
+}
+
+/**
+ * Whether a shown result can be seeded bare.
+ *
+ * Only a plain number qualifies: digits, the two configured symbols for ten and
+ * eleven (in whatever spelling this machine can actually paint) and the
+ * Humphrey point. Everything else -- a fraction's slash, a sign, an exponent --
+ * gets parentheses, because `583/2` seeded raw and followed by `^2` parses as
+ * `583/(2^2)` and quietly answers a different question. Over-wrapping is free;
+ * under-wrapping is a wrong number nobody sees.
+ */
+function atomicResult(text: string): boolean {
+  const symbols = new Set([";"]);
+  for (const symbol of [session?.alphabet_ten ?? "↊", session?.alphabet_eleven ?? "↋"]) {
+    symbols.add(symbol);
+    symbols.add(display(symbol));
+  }
+  if (text.length === 0) {
+    return false;
+  }
+  for (const character of text) {
+    if (character >= "0" && character <= "9") {
+      continue;
+    }
+    if (!symbols.has(character)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Arm the offer with the text the user is READING (`display()` output, in the
+ * alphabet of `docs/07`), not the canonical `lastResult`.
+ *
+ * The leading `~` that marks an approximation (`dz-api` adds it) is dropped:
+ * the lexer rejects that character outright, so seeding it would leave a box
+ * that cannot evaluate. The chain therefore continues from the truncated value,
+ * which is what the badge `paintNotes` shows already says it is.
+ */
+function armChain(shown: string): void {
+  const bare = shown.replace(/^~/, "").trim();
+  if (bare.length === 0) {
+    disarmChain();
+    return;
+  }
+  chainSeed = atomicResult(bare) ? bare : `(${bare})`;
+  chainAnchor = expression.value;
+  const tick = (): void => {
+    chainWatching = 0;
+    if (chainAnchor === null) {
+      return;
+    }
+    if (expression.value !== chainAnchor) {
+      disarmChain();
+      return;
+    }
+    chainWatching = requestAnimationFrame(tick);
+  };
+  chainWatching = requestAnimationFrame(tick);
+}
+
+/**
+ * Consume one incoming character. Returns `true` when it was swallowed by a
+ * seed, so the caller must not also type it.
+ *
+ * Every route that can put a character in the box funnels through here: the
+ * physical keyboard by `keydown`, and the on-screen keypad, the scientific pad
+ * and memory recall by `insert()`. A `keydown` handler alone would cover half
+ * the ways in -- the mistake `docs/08` section 2.3 already avoided once.
+ */
+function chainOn(text: string): boolean {
+  const seed = chainSeed;
+  if (seed === null) {
+    return false;
+  }
+  disarmChain();
+  if (!OPERATORS.has(text)) {
+    return false;
+  }
+  expression.value = seed + text;
+  const caret = expression.value.length;
+  expression.setSelectionRange(caret, caret);
+  expression.focus();
+  return true;
+}
+
 async function evaluate(): Promise<void> {
   const source = expression.value.trim();
   if (source.length === 0) {
@@ -135,19 +257,28 @@ async function evaluate(): Promise<void> {
   try {
     const response = await calc(operation);
     result.classList.remove("error");
-    result.textContent = display(response.display);
+    const shown = display(response.display);
+    result.textContent = shown;
     lastResult = response.display;
     lastOperation = operation;
     lastLabel = source;
     paintNotes(response);
     paintGates(response);
     paintSession(await getSession());
+    // Last, once nothing else can still write to the box: the offer is
+    // anchored to the value standing there right now.
+    armChain(shown);
   } catch (error) {
+    // An error leaves nothing to chain from.
+    disarmChain();
     showError(String(error));
   }
 }
 
 function insert(text: string): void {
+  if (chainOn(text)) {
+    return;
+  }
   const start = expression.selectionStart ?? expression.value.length;
   const end = expression.selectionEnd ?? expression.value.length;
   expression.value = expression.value.slice(0, start) + text + expression.value.slice(end);
@@ -512,8 +643,21 @@ async function boot(): Promise<void> {
     if (event.key === "Enter") {
       event.preventDefault();
       void evaluate();
+      return;
+    }
+    // The physical half of `chainOn` (`docs/09` section 3.3). A modifier
+    // combination is a shortcut, not a character, so it is left alone; a real
+    // character either seeds or spends the offer.
+    if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (chainOn(event.key)) {
+        event.preventDefault();
+      }
     }
   });
+  // Anything else that edits the box -- deleting, pasting, dictation -- spends
+  // the offer at once, without waiting for the watcher's next frame, so a fast
+  // `2` then `+` reads as `8*2+` and never seeds twice.
+  expression.addEventListener("input", disarmChain);
 
   modeSelect.addEventListener("change", async () => {
     paintSession(await setMode(modeSelect.value));
