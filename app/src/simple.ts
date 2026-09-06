@@ -119,6 +119,10 @@ let hooks: SimpleHooks;
 /// would spend it on every calculation the user never chains from.
 let chainArmed = false;
 
+/// Handle of the "copiado" timer, and the notes row it has to put back.
+let copyTimer = 0;
+let copyStash: Node[] = [];
+
 function paintSession(session: Session): void {
   renderHistory(historyList, session.history, (input) => {
     box.value = input;
@@ -286,6 +290,64 @@ export async function repaintSimpleFace(): Promise<void> {
   }
 }
 
+/// Copy the standing result to the clipboard, and say so for a moment.
+///
+/// What lands on the clipboard is the dozenal text exactly as shown -- the
+/// point of copying is to carry the answer out of the app, and the answer is
+/// the dozenal one. An error message is not a result and is not copied.
+///
+/// `navigator.clipboard` is the modern path and the webview serves from a
+/// secure origin, so it is available; the `execCommand` fallback covers a
+/// denied permission, which fails silently rather than leaving the user
+/// wondering whether the click did anything.
+async function copyResult(): Promise<void> {
+  const text = output.textContent ?? "";
+  if (text.length === 0 || output.classList.contains("error")) {
+    return;
+  }
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    copied = true;
+    (window as unknown as Record<string, string>).__copyPath = "async";
+  } catch {
+    const carrier = document.createElement("textarea");
+    carrier.value = text;
+    carrier.setAttribute("aria-hidden", "true");
+    carrier.style.position = "fixed";
+    carrier.style.opacity = "0";
+    document.body.appendChild(carrier);
+    carrier.select();
+    try {
+      copied = document.execCommand("copy");
+      (window as unknown as Record<string, string>).__copyPath = "exec";
+    } catch {
+      copied = false;
+    }
+    carrier.remove();
+  }
+  flashCopied(copied);
+}
+
+/// A brief word next to the result. Restores whatever the notes row was
+/// showing, so a periodicity or approximation badge is not lost to a copy.
+function flashCopied(ok: boolean): void {
+  if (copyTimer !== 0) {
+    clearTimeout(copyTimer);
+    notes.replaceChildren(...copyStash);
+  }
+  copyStash = [...notes.children].map((node) => node.cloneNode(true));
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  badge.textContent = ok ? "copiado" : "no se pudo copiar";
+  notes.replaceChildren(badge);
+  copyTimer = window.setTimeout(() => {
+    notes.replaceChildren(...copyStash);
+    copyStash = [];
+    copyTimer = 0;
+  }, 1200);
+}
+
 export async function initSimpleFace(next: SimpleHooks): Promise<void> {
   hooks = next;
   box = element<HTMLInputElement>("s-expression");
@@ -372,6 +434,10 @@ export async function initSimpleFace(next: SimpleHooks): Promise<void> {
       box.setSelectionRange(caret, caret);
     }
     chainArmed = false;
+  });
+
+  output.addEventListener("click", () => {
+    void copyResult();
   });
 
   element("s-gates-link").addEventListener("click", () => hooks.onShowResearch());

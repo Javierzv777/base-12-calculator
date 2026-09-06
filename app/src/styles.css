@@ -774,9 +774,19 @@ table.steps tr.pending td {
    dozenal one, where the expression carries as much weight. */
 .result.big {
   font-size: 46px;
+  /* Click to copy: the pointer is the only affordance, so it has to be
+     there. An error message is not a result, so it does not offer one. */
+  cursor: pointer;
+}
+.result.big:active {
+  opacity: 0.7;
 }
 .result.big.error {
   font-size: 18px;
+  cursor: default;
+}
+.result.big.error:active {
+  opacity: 1;
 }
 
 /* The hook: a quiet line under the result saying what it cost, and the
