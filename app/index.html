@@ -24,15 +24,49 @@
         </header>
 
         <div class="display">
-          <input
-            id="expression"
-            class="expression"
-            type="text"
-            spellcheck="false"
-            autocomplete="off"
-            placeholder="4;6 * 3"
-            aria-label="Expresión"
-          />
+          <div class="expression-row">
+            <input
+              id="expression"
+              class="expression"
+              type="text"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="4;6 * 3"
+              aria-label="Expresión"
+            />
+            <!-- Separate tool, not part of the calculator: the base conversion
+                 helper (docs/08, sections 2.0 and 2.4). It says what it did in
+                 the row itself, on demand: there is no popup and nothing here
+                 ever appears by itself. -->
+            <span id="base10-status" class="base10-status" role="status"></span>
+            <button
+              type="button"
+              id="base10-undo"
+              class="base10-undo"
+              title="Deshacer la conversión"
+              aria-label="Deshacer la conversión"
+              hidden
+            >
+              ↺
+            </button>
+            <button
+              type="button"
+              id="base10-convert"
+              class="base10-convert"
+              title="Convertir el contenido de base 10 a base 12 (herramienta aparte)"
+            >
+              10→12
+            </button>
+            <button
+              type="button"
+              id="base10-swap"
+              class="base10-swap"
+              title="Invertir la dirección de la conversión"
+              aria-label="Invertir la dirección de la conversión"
+            >
+              ⇄
+            </button>
+          </div>
           <output id="result" class="result">0</output>
           <div id="notes" class="notes"></div>
         </div>

@@ -16,6 +16,9 @@ import {
   type Session,
 } from "./api";
 import { initAlphabetModal, restoreStoredAlphabet } from "./alphabet";
+// A separate tool that shares the repository but not the calculator: see
+// `docs/08-conversion-base10.md` and the header of `base10.ts`.
+import { convertBase10Text, convertBase12Text, type Base10Style } from "./base10";
 import { display, initGlyphMode } from "./glyphs";
 import { renderHistory } from "./history";
 import { renderKeypad, renderScientificPad } from "./keypad";
@@ -212,6 +215,178 @@ function showView(name: string): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Connection point for the base conversion helper -- a SEPARATE TOOL, not part
+// of the calculator (`docs/08-conversion-base10.md`, section 1.2). Everything
+// below is UI: it hands `base10.ts` a string and, only when the user clicks,
+// writes the answer into the input's `value`. No result, no history entry, no
+// gate count and no memory register ever comes from here, and `base10.ts` calls
+// nothing of the calculator's in return.
+//
+// One control, two directions (section 2.4): a button that converts the box on
+// demand, and a swap next to it that flips which way it reads -- `10→12` or
+// `12→10`, the way a translator swaps its two languages. There is no popup and
+// nothing appears by itself: the tool only ever speaks after a click.
+// ---------------------------------------------------------------------------
+function initBase10Tool(): void {
+  const convertButton = element<HTMLButtonElement>("base10-convert");
+  const swapButton = element<HTMLButtonElement>("base10-swap");
+  const undoButton = element<HTMLButtonElement>("base10-undo");
+  const status = element<HTMLSpanElement>("base10-status");
+
+  /** Which way the button reads the box. Starts on the direction of section 2. */
+  let direction: "to12" | "to10" = "to12";
+  // Set after a conversion, so undo can restore exactly what was there before.
+  let undoTo: string | null = null;
+  // The exact text the undo offer belongs to: the conversion's own output.
+  //
+  // `docs/08` section 2.3 is a WHITELIST, not a blacklist: undo is armed only by
+  // our own write, and retires on ANY other value the box takes. Listing the
+  // ways a value can change (typing, deleting, pasting, cutting, the dozenal
+  // keypad, restoring from history, dragging text in, dictation, autofill, a
+  // route added six months from now) always leaves some out, and every omission
+  // is an undo that silently overwrites the user's work. Compared against the
+  // value itself, the rule has no holes.
+  let anchor: string | null = null;
+  // Handle of the frame loop that does the comparing, 0 when it is not running.
+  // Programmatic writes to `value` fire no event at all -- not `input`, not
+  // anything -- so watching the value is the only hole-free way to see them. It
+  // runs only while undo is armed, and stops itself as soon as it is not.
+  let watching = 0;
+
+  function stopWatching(): void {
+    if (watching !== 0) {
+      cancelAnimationFrame(watching);
+      watching = 0;
+    }
+  }
+
+  /** Put the tool back to its resting state: no undo, nothing said. */
+  function retire(): void {
+    undoTo = null;
+    anchor = null;
+    stopWatching();
+    undoButton.hidden = true;
+    status.textContent = "";
+    status.title = "";
+  }
+
+  function watch(): void {
+    stopWatching();
+    const tick = (): void => {
+      watching = 0;
+      if (anchor === null) {
+        return;
+      }
+      if (expression.value !== anchor) {
+        // Someone other than us changed the box, so restoring would overwrite
+        // work the user did on top of the conversion.
+        retire();
+        return;
+      }
+      watching = requestAnimationFrame(tick);
+    };
+    watching = requestAnimationFrame(tick);
+  }
+
+  function style(): Base10Style {
+    // Read off the live session so the text is spelled the way the user has the
+    // interface configured: the alphabet (`docs/07`), and the mode and scale
+    // that decide what a non-terminating fraction looks like (`docs/08` section
+    // 3.2). Plain values cross the boundary; the module never sees a `Session`,
+    // and never asks anyone for one.
+    const mode = session?.mode;
+    return {
+      ten: session?.alphabet_ten ?? "↊",
+      eleven: session?.alphabet_eleven ?? "↋",
+      mode: mode === "rational" || mode === "dfp" ? mode : "fixed",
+      scale: session?.scale ?? 12,
+    };
+  }
+
+  /** A short line in the row, and the whole story in its tooltip. */
+  function say(short: string, detail: string): void {
+    status.textContent = short;
+    status.title = detail;
+  }
+
+  function paintDirection(): void {
+    const to12 = direction === "to12";
+    convertButton.textContent = to12 ? "10→12" : "12→10";
+    convertButton.title = to12
+      ? "Convertir el contenido de base 10 a base 12 (herramienta aparte)"
+      : "Convertir el contenido de base 12 a base 10 (herramienta aparte)";
+  }
+
+  swapButton.addEventListener("click", () => {
+    direction = direction === "to12" ? "to10" : "to12";
+    paintDirection();
+    // The offer belonged to the other direction's click, and the message to the
+    // other direction's outcome. Neither survives the flip.
+    retire();
+    expression.focus();
+  });
+
+  convertButton.addEventListener("click", () => {
+    const source = expression.value;
+    const conversion =
+      direction === "to12"
+        ? convertBase10Text(source, style())
+        : convertBase12Text(source, style());
+    const target = direction === "to12" ? "12" : "10";
+    if (!conversion.changed) {
+      retire();
+      say(
+        "nada que convertir",
+        `el texto se lee igual en base ${target}, así que no se cambió nada`,
+      );
+      expression.focus();
+      return;
+    }
+    expression.value = conversion.text;
+    const detail: string[] = [`convertido a base ${target}`];
+    if (conversion.keptDozenal) {
+      // A text with dozenal glyphs is not readable as base 10 as a whole, so
+      // say plainly that only the decimal runs moved (section 2.0).
+      detail.push("los símbolos dozenales se dejaron intactos");
+    }
+    if (conversion.madeFraction) {
+      detail.push("un decimal no termina en esa base y se escribió como fracción exacta");
+    }
+    if (conversion.madeTruncated) {
+      // The only place the preview's `…` is ever shown, now that the popup is
+      // gone: it says the expansion goes on, and it never reaches the box.
+      detail.push(`un decimal no termina en esa base y se truncó a la escala → ${conversion.preview}`);
+    }
+    say(`base ${target}`, `${detail.join("; ")}.`);
+    // Armed here, after the write, because the value at this instant is what
+    // the offer is anchored to (section 2.3).
+    undoTo = source;
+    anchor = expression.value;
+    undoButton.hidden = false;
+    watch();
+    expression.focus();
+  });
+
+  undoButton.addEventListener("click", () => {
+    // Last line of the whitelist: an edit that landed after the last frame and
+    // before this click still retires the offer, instead of overwriting it.
+    if (undoTo === null || (anchor !== null && expression.value !== anchor)) {
+      retire();
+      expression.focus();
+      return;
+    }
+    expression.value = undoTo;
+    retire();
+    expression.focus();
+  });
+
+  // Typing answers immediately; the frame loop above covers everything else.
+  expression.addEventListener("input", retire);
+
+  paintDirection();
+}
+
 async function boot(): Promise<void> {
   initGlyphMode();
   syncAlphabet = initAlphabetModal({
@@ -292,6 +467,8 @@ async function boot(): Promise<void> {
   element("history-clear").addEventListener("click", async () => {
     paintSession(await clearHistory());
   });
+
+  initBase10Tool();
 
   expression.focus();
 }

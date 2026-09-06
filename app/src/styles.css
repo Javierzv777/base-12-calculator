@@ -677,3 +677,77 @@ table.steps tr.pending td {
 .small.accent:hover:not(:disabled) {
   filter: brightness(1.08);
 }
+
+/* Separate tool, not part of the calculator: the base conversion helper
+   (docs/08-conversion-base10.md). It lives entirely in the expression row now:
+   no popup, nothing absolutely positioned, nothing that can appear over the
+   result. What it did is said in one short line, with the whole story in the
+   tooltip, so the row never grows and the display never moves. */
+.base10-status {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  color: var(--ink-dim);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.expression-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.expression-row .expression {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The always-available half of the helper (docs/08, section 2.0). Quiet by
+   default: it is a tool that sits next to the calculator, not a calculator
+   key. */
+.base10-convert {
+  flex: 0 0 auto;
+  background: transparent;
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.base10-convert:hover {
+  color: var(--ink);
+  border-color: var(--approx);
+}
+
+/* The swap, next to the button, the way a translator puts it: one click and the
+   button reads the box the other way round (docs/08 section 2.4). */
+.base10-swap,
+.base10-undo {
+  flex: 0 0 auto;
+  background: transparent;
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.base10-swap:hover,
+.base10-undo:hover {
+  color: var(--ink);
+  border-color: var(--approx);
+}
+
+.base10-undo {
+  border-color: var(--approx);
+  color: var(--approx);
+}

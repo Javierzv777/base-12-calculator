@@ -347,6 +347,10 @@ default.json`) y contra la que se registra la ruta elegida.
 - `tools/lint-purity.ps1` — 4 reglas; la 4 detecta `*`/`%`/`/` nativos fuera de
   `backends/`, que es la clase de fallo que las otras tres no veían
 
+## Fuera de las capas (no es parte de la calculadora)
+
+- `app/src/base10.ts` — conversor rápido entre base 10 y base 12 (en los dos sentidos) para la caja de entrada de la GUI; herramienta aparte, sin relación con las capas ni con el motor de puertas (`docs/08-conversion-base10.md`).
+
 ## Resultados medidos
 
 `digit_mul` por multiplicación de un dígito, backend MVL:
