@@ -55,7 +55,10 @@ impl std::fmt::Display for LexError {
 impl std::error::Error for LexError {}
 
 /// Length of the maximal run of ASCII letters starting at `i`.
-fn letter_run(chars: &[char], i: usize) -> usize {
+///
+/// `pub(crate)` so `display_alphabet` can walk letter runs the same way
+/// this lexer does instead of growing a second copy of the rule.
+pub(crate) fn letter_run(chars: &[char], i: usize) -> usize {
     let mut n = 0usize;
     while i + n < chars.len() && chars[i + n].is_ascii_alphabetic() {
         n += 1;
@@ -63,18 +66,32 @@ fn letter_run(chars: &[char], i: usize) -> usize {
     n
 }
 
-/// Whether a run of letters should be read as an identifier rather than as
-/// a run of dozenal digit aliases: true as soon as one letter is not an
-/// alias (see the module docs for why this is the rule).
-fn is_identifier_run(chars: &[char], i: usize, len: usize) -> bool {
+/// The identifier-vs-number rule, parameterised by *which* alias set is in
+/// force: true as soon as one letter of the run is not a digit alias (see
+/// the module docs for why this is the rule).
+///
+/// The lexer always passes the canonical alias set. `display_alphabet`
+/// passes the user's configured pair, so a presentation alphabet decides
+/// "name or number" by exactly this function rather than by a second
+/// implementation of it in another module -- or, worse, another language.
+pub(crate) fn is_identifier_run_with<F>(chars: &[char], i: usize, len: usize, is_alias: F) -> bool
+where
+    F: Fn(char) -> bool,
+{
     let mut k = 0usize;
     while k < len {
-        if char_to_digit(chars[i + k]).is_none() {
+        if !is_alias(chars[i + k]) {
             return true;
         }
         k += 1;
     }
     false
+}
+
+/// Whether a run of letters should be read as an identifier rather than as
+/// a run of dozenal digit aliases, under the canonical alphabet.
+pub(crate) fn is_identifier_run(chars: &[char], i: usize, len: usize) -> bool {
+    is_identifier_run_with(chars, i, len, |c| char_to_digit(c).is_some())
 }
 
 pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {

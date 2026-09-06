@@ -56,6 +56,9 @@
             Dígitos de trabajo
             <input id="scale" type="number" min="1" max="60" step="1" />
           </label>
+          <button id="alphabet-open" type="button" class="small">
+            Alfabeto: <span id="alphabet-current">↊↋</span>
+          </button>
         </section>
 
         <section class="gates">
@@ -182,6 +185,51 @@
         </section>
       </section>
     </main>
+
+    <!--
+      Presentation alphabet (docs/07). Two one-character fields, four
+      presets and a live preview. The validation and the translation both
+      live in Rust: this dialog only collects two characters and shows
+      whatever Rust answers.
+    -->
+    <dialog id="alphabet-modal" class="modal">
+      <form method="dialog" class="modal-body">
+        <h2>Símbolos para diez y once</h2>
+        <p class="muted small-note">
+          Solo cambia lo que ves y lo que tecleas. El cálculo, el historial
+          guardado y los CSV exportados siguen usando el alfabeto canónico.
+        </p>
+
+        <div class="alphabet-fields">
+          <label>
+            Diez
+            <input id="alphabet-ten" type="text" maxlength="2" spellcheck="false" autocomplete="off" />
+          </label>
+          <label>
+            Once
+            <input id="alphabet-eleven" type="text" maxlength="2" spellcheck="false" autocomplete="off" />
+          </label>
+        </div>
+
+        <div class="alphabet-presets" id="alphabet-presets">
+          <button type="button" class="small" data-ten="↊" data-eleven="↋">↊ ↋ (por defecto)</button>
+          <button type="button" class="small" data-ten="X" data-eleven="E">X E</button>
+          <button type="button" class="small" data-ten="A" data-eleven="B">A B</button>
+          <button type="button" class="small" data-ten="T" data-eleven="E">T E</button>
+        </div>
+
+        <p class="alphabet-preview">
+          Vista previa: <span id="alphabet-preview">1↊;↋</span>
+        </p>
+        <p id="alphabet-error" class="alphabet-error" role="alert"></p>
+
+        <div class="modal-actions">
+          <button id="alphabet-reset" type="button" class="small">Restablecer</button>
+          <button id="alphabet-cancel" type="button" class="small">Cancelar</button>
+          <button id="alphabet-apply" type="button" class="small accent">Aplicar</button>
+        </div>
+      </form>
+    </dialog>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

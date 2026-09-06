@@ -27,8 +27,14 @@ function measure(context: CanvasRenderingContext2D, text: string): number {
   return context.measureText(text).width;
 }
 
-/** Whether the current font stack can actually draw the dozenal digits. */
-export function supportsDozenalGlyphs(): boolean {
+/**
+ * Whether the current font stack can actually draw `symbol`.
+ *
+ * The same measurement as `supportsDozenalGlyphs`, generalised so the
+ * settings modal can warn about a *chosen* symbol before the user commits
+ * to a keypad full of empty boxes (`docs/07` section 4).
+ */
+export function supportsSymbol(symbol: string): boolean {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
   if (!context) {
@@ -37,10 +43,13 @@ export function supportsDozenalGlyphs(): boolean {
   const style = window.getComputedStyle(document.body);
   context.font = `48px ${style.fontFamily}`;
   const tofu = measure(context, DEFINITELY_MISSING);
-  const dek = measure(context, DEK);
-  const el = measure(context, EL);
-  const different = Math.abs(dek - tofu) > 0.5 && Math.abs(el - tofu) > 0.5;
-  return different && dek > 0 && el > 0;
+  const width = measure(context, symbol);
+  return width > 0 && Math.abs(width - tofu) > 0.5;
+}
+
+/** Whether the current font stack can actually draw the dozenal digits. */
+export function supportsDozenalGlyphs(): boolean {
+  return supportsSymbol(DEK) && supportsSymbol(EL);
 }
 
 /** Presentation-only substitution; never applied to what gets sent to Rust. */

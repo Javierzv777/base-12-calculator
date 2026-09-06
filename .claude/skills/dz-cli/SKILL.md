@@ -58,6 +58,55 @@ Traps to avoid:
 - `^` takes non-negative integer exponents only. Anything else is written
   `exp(y * ln(x))`.
 
+### `--alphabet <XY>`: choosing the two symbols
+
+`--alphabet` picks the pair of characters that stand for ten and eleven,
+for typing *and* for printing. It changes presentation only — the
+calculation, the JSON and the CSV are untouched.
+
+```
+$ dz-cli eval "ab" --alphabet ab --mode fixed
+ab
+
+$ dz-cli eval "abs(-3)" --alphabet ab
+3
+
+$ dz-cli eval "b" --alphabet ab --mode fixed --json
+{"ok":true,"display":"↋","periodic_note":false,"approximate":false,"gate_count":{"cycle":3696,"min":6764,"max":4996,"lit":3396,"thr":840,"total":19692},"depth":254,"reconstruction_ops":0}
+```
+
+Note the third one: the terminal shows `b`, the JSON shows `↋`. Exchange
+documents keep the canonical alphabet on purpose, so an export never
+depends on who ran it. The same holds for `--csv`.
+
+`abs` still works because the pair is applied with the lexer's own rule: a
+maximal run of letters is a *number* only if every letter is a digit, so
+`ab` is ten-eleven and `abs` is a function name.
+
+A pair that would break a catalog name is refused, and the message says
+which name:
+
+```
+$ dz-cli eval "1+1" --alphabet pi
+usage error: the pair 'p'/'i' would make 'pi' read as a number instead of a name, so the function 'pi' could never be called
+try 'dz-cli --help'
+```
+
+With a pair configured, the legacy aliases stop being digits — the
+canonical glyphs never do:
+
+```
+$ dz-cli eval "E" --alphabet ab
+error: 'E' is not a number in the current alphabet: ten is 'a', eleven is 'b' (the canonical glyphs ↊ and ↋ are always accepted too)
+
+$ dz-cli eval "↊+↋" --alphabet ab --mode fixed
+19
+```
+
+In the REPL the same thing is `:alphabet ab`; bare `:alphabet` reports the
+current pair. Changing it repaints `:history` and `:mem`, because those
+hold canonical text.
+
 ## 3. Recipes
 
 Every command below was executed; the output shown is what it printed.
@@ -332,6 +381,10 @@ Do not try these; they fail by design, with an explanation.
 - **The REPL's session is process memory.** `:mem`/`:mem+`/`:memc`,
   `:history`/`:clear`, `:session` exist in the interactive mode only, and
   nothing is persisted to disk when it exits.
+- **`--alphabet` does not persist either**, and it does not translate the
+  JSON or the CSV. It is per invocation (or per REPL session), never a
+  stored setting: the GUI has its own preference, in its own browser
+  storage.
 
 ## 7. If you are going to edit this repository
 

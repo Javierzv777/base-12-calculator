@@ -19,8 +19,8 @@
 use dz_api::{
     compare_backends, comparison_json_line, error_json_line, execute, functions, gate_count_csv,
     to_ascii, to_json_line, trace_csv, trace_json_line, trace_measured, trace_summary_csv,
-    ApiError, BackendComparison, BackendKind, GateCount, NumberMode, Operation, Request, Response,
-    Trace, TraceKind, TraceRequest,
+    ApiError, BackendComparison, BackendKind, DisplayAlphabet, GateCount, NumberMode, Operation,
+    Request, Response, Trace, TraceKind, TraceRequest,
 };
 use std::io::{self, BufRead, Write};
 
@@ -29,9 +29,31 @@ const ERROR_EXIT: i32 = 1;
 
 // ------------------------------------------------------------------ shared
 
+/// Render canonical text the way this invocation should show it: through
+/// the configured presentation alphabet first (`docs/07`), then the ASCII
+/// fallback for terminals that cannot draw U+218A/U+218B.
+///
+/// Order matters and only in one way: with the default alphabet
+/// `from_canonical` is the identity, so `--unicode` and the ASCII default
+/// behave exactly as they always did. With a configured pair there are no
+/// canonical glyphs left for `to_ascii` to touch.
+fn shown(text: &str, alphabet: &DisplayAlphabet, unicode: bool) -> String {
+    let text = alphabet.from_canonical(text);
+    if unicode {
+        text
+    } else {
+        to_ascii(&text)
+    }
+}
+
 /// The plain-text rendering of a response, including the periodicity note
 /// the REPL has always appended.
-fn plain_output(response: &Response, mode: NumberMode, unicode: bool) -> String {
+fn plain_output(
+    response: &Response,
+    mode: NumberMode,
+    unicode: bool,
+    alphabet: &DisplayAlphabet,
+) -> String {
     let mut out = response.display.clone();
     if response.periodic_note {
         match mode {
@@ -39,11 +61,7 @@ fn plain_output(response: &Response, mode: NumberMode, unicode: bool) -> String 
             _ => out.push_str(" (periodica en base 12)"),
         }
     }
-    if unicode {
-        out
-    } else {
-        to_ascii(&out)
-    }
+    shown(&out, alphabet, unicode)
 }
 
 fn gate_line(response: &Response) -> Option<String> {
@@ -126,6 +144,9 @@ struct Flags {
     unicode: bool,
     gates: bool,
     csv: Option<CsvTarget>,
+    /// The presentation alphabet for this invocation (`--alphabet ab`).
+    /// Default: the canonical glyphs, i.e. exactly the old behaviour.
+    alphabet: DisplayAlphabet,
 }
 
 impl Default for Flags {
@@ -138,7 +159,24 @@ impl Default for Flags {
             unicode: false,
             gates: false,
             csv: None,
+            alphabet: DisplayAlphabet::canonical(),
         }
+    }
+}
+
+/// Read `--alphabet ab` / `:alphabet ab`: exactly two characters, ten then
+/// eleven, validated by `dz-api` against the live function catalog.
+///
+/// The error text is `dz-api`'s, verbatim: the rule that rejects a pair
+/// lives in `dz-parse` and there is no second wording of it here.
+fn parse_alphabet(value: &str) -> Result<DisplayAlphabet, String> {
+    let chars: Vec<char> = value.chars().collect();
+    match chars.as_slice() {
+        [ten, eleven] => dz_api::display_alphabet(*ten, *eleven).map_err(|e| e.to_string()),
+        _ => Err(format!(
+            "the alphabet is exactly two characters, ten then eleven (e.g. 'ab'): got '{}'",
+            value
+        )),
     }
 }
 
@@ -164,6 +202,10 @@ fn print_usage() {
     println!("  --scale <n>                 working digits for approximate functions");
     println!("  --json                      one line of JSON instead of plain text");
     println!("  --unicode                   dozenal glyphs instead of the X/E aliases");
+    println!("  --alphabet <XY>             presentation symbols for ten and eleven,");
+    println!("                              e.g. '--alphabet ab' (default: \u{218A}\u{218B});");
+    println!("                              affects typed input and printed output only,");
+    println!("                              never the CSV or the JSON");
     println!("  --gates                     also print the gate count of the call");
     println!("  --functions                 list the callable functions and constants");
     println!("  --csv[=<path>]              CSV instead of text: the step table of a");
@@ -219,7 +261,7 @@ fn split_arguments(args: &[String]) -> Result<(Vec<String>, Flags), String> {
                 "unicode" => flags.unicode = true,
                 "gates" => flags.gates = true,
                 "help" => return Err(String::new()),
-                "mode" | "backend" | "scale" => {
+                "mode" | "backend" | "scale" | "alphabet" => {
                     i += 1;
                     if i >= args.len() {
                         return Err(format!("--{} needs a value", name));
@@ -234,6 +276,7 @@ fn split_arguments(args: &[String]) -> Result<(Vec<String>, Flags), String> {
                             flags.backend = BackendKind::parse(&value)
                                 .ok_or(format!("unknown backend '{}'", value))?
                         }
+                        "alphabet" => flags.alphabet = parse_alphabet(&value)?,
                         _ => {
                             flags.scale = parse_count(&value)
                                 .ok_or(format!("--scale needs a small number, got '{}'", value))?
@@ -591,6 +634,7 @@ fn run_trace(kind: TraceKind, a: &str, b: &str, flags: &Flags) -> i32 {
         kind,
         a: a.to_string(),
         b: b.to_string(),
+        alphabet: flags.alphabet,
     };
     let (trace, count) = match trace_measured(&request) {
         Ok(pair) => pair,
@@ -615,7 +659,7 @@ fn run_trace(kind: TraceKind, a: &str, b: &str, flags: &Flags) -> i32 {
         return 0;
     }
     let text = render_trace(&trace);
-    print!("{}", if flags.unicode { text } else { to_ascii(&text) });
+    print!("{}", shown(&text, &flags.alphabet, flags.unicode));
     if flags.gates {
         println!("{}", trace_gate_line(&count));
     }
@@ -630,7 +674,7 @@ fn run_compare(op: &Operation, flags: &Flags) -> i32 {
             return USAGE_EXIT;
         }
     }
-    let comparison = match compare_backends(op, flags.mode, flags.scale) {
+    let comparison = match compare_backends(op, flags.mode, flags.scale, flags.alphabet) {
         Ok(comparison) => comparison,
         Err(error) => {
             if flags.json {
@@ -649,7 +693,7 @@ fn run_compare(op: &Operation, flags: &Flags) -> i32 {
         return 0;
     }
     let text = render_comparison(&comparison);
-    print!("{}", if flags.unicode { text } else { to_ascii(&text) });
+    print!("{}", shown(&text, &flags.alphabet, flags.unicode));
     0
 }
 
@@ -700,13 +744,17 @@ fn run_calc(operation: Operation, flags: &Flags) -> i32 {
     let request = Request::new(operation)
         .with_mode(flags.mode)
         .with_backend(flags.backend)
-        .with_scale(flags.scale);
+        .with_scale(flags.scale)
+        .with_alphabet(flags.alphabet);
     match execute(&request) {
         Ok(response) => {
             if flags.json {
                 println!("{}", to_json_line(&response));
             } else {
-                println!("{}", plain_output(&response, flags.mode, flags.unicode));
+                println!(
+                    "{}",
+                    plain_output(&response, flags.mode, flags.unicode, &flags.alphabet)
+                );
                 if flags.gates {
                     if let Some(line) = gate_line(&response) {
                         println!("{}", line);
@@ -752,7 +800,12 @@ struct Session {
     /// The memory register: `None` is empty, as after `:memc`.
     memory: Option<String>,
     /// `(input, output)` pairs, in order. Process memory, like the GUI's.
+    /// The output is **canonical** text, so `:alphabet` repaints the whole
+    /// list instead of leaving it half in one spelling and half in the
+    /// other (`docs/07` section 3.5).
     history: Vec<(String, String)>,
+    /// The presentation alphabet, switchable with `:alphabet`.
+    alphabet: DisplayAlphabet,
 }
 
 fn print_repl_help() {
@@ -763,6 +816,8 @@ fn print_repl_help() {
     println!("  Functions: sin(1), sqrt(9), log(100), pi -- ':funcs' lists them all");
     println!("  Commands: :backend mvl|crt|table   :mode rational|fixed|dfp");
     println!("            :scale <n>   :gates   :funcs   :help   :quit");
+    println!("            :alphabet <XY> (presentation symbols for ten and eleven,");
+    println!("                            e.g. ':alphabet ab'; ':alphabet' shows it)");
     println!("  Session:  :mem (recall)  :mem+ (store last result)  :memc (clear)");
     println!("            :history   :clear   :session");
     println!("  Research: run 'dz-cli trace add EEE 1' or 'dz-cli compare mul 25 34'");
@@ -776,6 +831,7 @@ fn run_repl() {
         show_gates: false,
         memory: None,
         history: Vec::new(),
+        alphabet: DisplayAlphabet::canonical(),
     };
     let stdin = io::stdin();
     println!("dz-cli -- dozenal calculator. Default mode: rational. Type :help for usage, :quit to exit.");
@@ -816,7 +872,7 @@ fn run_repl() {
         // a number -- recalling it re-parses it with `dz-parse`.
         if line == ":mem" {
             match &session.memory {
-                Some(value) => println!("memory = {}", value),
+                Some(value) => println!("memory = {}", session.alphabet.from_canonical(value)),
                 None => println!("memory is empty (':mem+' stores the last result)"),
             }
             continue;
@@ -824,8 +880,9 @@ fn run_repl() {
         if line == ":mem+" {
             match session.history.last() {
                 Some((_, output)) => {
-                    session.memory = Some(output.clone());
-                    println!("memory = {}", output);
+                    let stored = output.clone();
+                    println!("memory = {}", session.alphabet.from_canonical(&stored));
+                    session.memory = Some(stored);
                 }
                 None => println!("nothing to store yet"),
             }
@@ -843,7 +900,12 @@ fn run_repl() {
             // The index is a counter, not a dozenal value: printing it in
             // decimal is the same bookkeeping as a `Vec` length.
             for (index, (input, output)) in session.history.iter().enumerate() {
-                println!("  {:>3}  {}  =  {}", index + 1, input, output);
+                println!(
+                    "  {:>3}  {}  =  {}",
+                    index + 1,
+                    input,
+                    session.alphabet.from_canonical(output)
+                );
             }
             continue;
         }
@@ -859,9 +921,44 @@ fn run_repl() {
             println!("gate counts {}", if session.show_gates { "on" } else { "off" });
             println!(
                 "memory = {}",
-                session.memory.as_deref().unwrap_or("(empty)")
+                session
+                    .memory
+                    .as_deref()
+                    .map(|value| session.alphabet.from_canonical(value))
+                    .unwrap_or_else(|| "(empty)".to_string())
+            );
+            println!(
+                "alphabet = {}{}",
+                session.alphabet.ten(),
+                session.alphabet.eleven()
             );
             println!("history = {} entries", session.history.len());
+            continue;
+        }
+        // The presentation alphabet (`docs/07`). Changing it repaints the
+        // whole session: the history and the memory hold canonical text,
+        // and everything is rendered through the alphabet at print time.
+        if line == ":alphabet" {
+            println!(
+                "alphabet: ten = '{}', eleven = '{}'{}",
+                session.alphabet.ten(),
+                session.alphabet.eleven(),
+                if session.alphabet.is_canonical() { " (default)" } else { "" }
+            );
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix(":alphabet ") {
+            match parse_alphabet(rest.trim()) {
+                Ok(alphabet) => {
+                    session.alphabet = alphabet;
+                    println!(
+                        "alphabet: ten = '{}', eleven = '{}'",
+                        alphabet.ten(),
+                        alphabet.eleven()
+                    );
+                }
+                Err(message) => println!("error: {}", message),
+            }
             continue;
         }
         if let Some(rest) = line.strip_prefix(":backend ") {
@@ -898,13 +995,17 @@ fn run_repl() {
         let request = Request::new(Operation::Eval { expr: line.to_string() })
             .with_backend(session.backend)
             .with_mode(session.mode)
-            .with_scale(session.scale);
+            .with_scale(session.scale)
+            .with_alphabet(session.alphabet);
         match execute(&request) {
             Ok(response) => {
                 // The interactive REPL keeps the canonical glyphs: the user
                 // is looking at the terminal and can see whether their font
                 // renders them (docs/04-fase6-interfaces.md, 3.4).
-                println!("{}", plain_output(&response, session.mode, true));
+                println!(
+                    "{}",
+                    plain_output(&response, session.mode, true, &session.alphabet)
+                );
                 // The history keeps the formatted text, which is all the
                 // interface ever holds of a dozenal value.
                 session

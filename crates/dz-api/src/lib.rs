@@ -36,6 +36,14 @@ use dz_gates::{CrtGates, DozGates, MvlGates, TableGates};
 pub use dz_gates::GateCount;
 use dz_parse::{format_dfp, format_fixed, format_rational, parse_str, Expr, ExprParseError};
 
+/// The presentation alphabet (`docs/07-alfabeto-configurable.md`).
+///
+/// Re-exported so an interface never reaches into `dz-parse` itself, and
+/// so the rule that decides "name or number" has exactly one home. Build
+/// one with [`display_alphabet`], which supplies the function catalog the
+/// validation needs.
+pub use dz_parse::{AlphabetError, DisplayAlphabet};
+
 /// Which of the three `DozGates` backends a single call uses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackendKind {
@@ -130,6 +138,17 @@ pub struct Request {
     /// Working precision for functions that cannot be exact (`sin`, `ln`).
     /// Ignored by the exact ones.
     pub scale: usize,
+    /// Which presentation alphabet the operand *text* of `op` is written
+    /// in. Purely about the incoming characters: it is applied before the
+    /// lexer and never reaches any layer below `dz-parse`.
+    ///
+    /// `Response.display` comes back in the **canonical** alphabet
+    /// regardless; an interface renders it through
+    /// [`DisplayAlphabet::from_canonical`] at paint time. That split is
+    /// deliberate: history, CSV and JSON keep canonical text, so changing
+    /// the alphabet repaints old results instead of leaving a mixed list
+    /// (`docs/07` sections 3.4 and 3.5).
+    pub alphabet: DisplayAlphabet,
     pub op: Operation,
 }
 
@@ -141,6 +160,7 @@ impl Request {
             backend: BackendKind::Mvl,
             mode: NumberMode::Rational,
             scale: dz_sci::DEFAULT_SCI_SCALE,
+            alphabet: DisplayAlphabet::canonical(),
             op,
         }
     }
@@ -159,6 +179,24 @@ impl Request {
         self.scale = scale;
         self
     }
+
+    pub fn with_alphabet(mut self, alphabet: DisplayAlphabet) -> Request {
+        self.alphabet = alphabet;
+        self
+    }
+}
+
+/// Build a presentation alphabet, validated against the live function
+/// catalog.
+///
+/// The catalog check (`docs/07` section 3.2, rule 3) is why this wrapper
+/// exists: `DisplayAlphabet::new` deliberately takes the reserved names as
+/// a parameter, because the registry lives in `dz-eval`, two layers above
+/// `dz-parse`. This is the layer where both are in scope, so this is the
+/// constructor every interface should call.
+pub fn display_alphabet(ten: char, eleven: char) -> Result<DisplayAlphabet, AlphabetError> {
+    let names: Vec<String> = functions().into_iter().map(|f| f.name.to_string()).collect();
+    DisplayAlphabet::new(ten, eleven, &names)
 }
 
 /// Everything a caller needs, in one value.
@@ -217,6 +255,10 @@ pub enum ApiError {
     /// A research-panel request that is well-formed text but not something
     /// a single circuit run can represent (see `research::trace`).
     Trace(String),
+    /// The request's text could not be read in the configured
+    /// presentation alphabet (`docs/07`): a legacy alias that this
+    /// alphabet does not spell, most often.
+    Alphabet(AlphabetError),
 }
 
 impl std::fmt::Display for ApiError {
@@ -225,10 +267,17 @@ impl std::fmt::Display for ApiError {
             ApiError::Parse(e) => write!(f, "{}", e),
             ApiError::Eval(e) => write!(f, "{}", e),
             ApiError::Trace(message) => write!(f, "{}", message),
+            ApiError::Alphabet(e) => write!(f, "{}", e),
         }
     }
 }
 impl std::error::Error for ApiError {}
+
+impl From<AlphabetError> for ApiError {
+    fn from(e: AlphabetError) -> ApiError {
+        ApiError::Alphabet(e)
+    }
+}
 
 impl From<ExprParseError> for ApiError {
     fn from(e: ExprParseError) -> ApiError {
@@ -262,38 +311,67 @@ pub fn execute(req: &Request) -> Result<Response, ApiError> {
     }
 }
 
-fn operand(text: &str) -> Result<Expr, ApiError> {
-    Ok(parse_str(text)?)
+/// Parse one piece of operand text, translating it out of the user's
+/// presentation alphabet first.
+///
+/// The translation is a `dz-parse` call, not a rule re-derived here: this
+/// layer knows *when* to translate, `dz-parse` knows *how*.
+fn operand(alphabet: &DisplayAlphabet, text: &str) -> Result<Expr, ApiError> {
+    let canonical = alphabet.to_canonical(text)?;
+    Ok(parse_str(&canonical)?)
 }
 
 /// Turn a named operation into the AST the evaluator already understands,
 /// so there is exactly one evaluation path regardless of how the request
 /// arrived.
-fn build_expr(op: &Operation) -> Result<Expr, ApiError> {
+///
+/// A `Call`'s *name* is never translated: it comes from the registry
+/// catalog, not from the user's keyboard, and is always spelled the way
+/// `dz-eval` registered it.
+fn build_expr(alphabet: &DisplayAlphabet, op: &Operation) -> Result<Expr, ApiError> {
     let expr = match op {
-        Operation::Sum { a, b } => Expr::Add(Box::new(operand(a)?), Box::new(operand(b)?)),
-        Operation::Sub { a, b } => Expr::Sub(Box::new(operand(a)?), Box::new(operand(b)?)),
-        Operation::Mul { a, b } => Expr::Mul(Box::new(operand(a)?), Box::new(operand(b)?)),
-        Operation::Div { a, b } => Expr::Div(Box::new(operand(a)?), Box::new(operand(b)?)),
-        Operation::Mod { a, b } => Expr::Mod(Box::new(operand(a)?), Box::new(operand(b)?)),
-        Operation::Pow { base, exponent } => {
-            Expr::Pow(Box::new(operand(base)?), Box::new(operand(exponent)?))
-        }
-        Operation::Neg { a } => Expr::Neg(Box::new(operand(a)?)),
+        Operation::Sum { a, b } => Expr::Add(
+            Box::new(operand(alphabet, a)?),
+            Box::new(operand(alphabet, b)?),
+        ),
+        Operation::Sub { a, b } => Expr::Sub(
+            Box::new(operand(alphabet, a)?),
+            Box::new(operand(alphabet, b)?),
+        ),
+        Operation::Mul { a, b } => Expr::Mul(
+            Box::new(operand(alphabet, a)?),
+            Box::new(operand(alphabet, b)?),
+        ),
+        Operation::Div { a, b } => Expr::Div(
+            Box::new(operand(alphabet, a)?),
+            Box::new(operand(alphabet, b)?),
+        ),
+        Operation::Mod { a, b } => Expr::Mod(
+            Box::new(operand(alphabet, a)?),
+            Box::new(operand(alphabet, b)?),
+        ),
+        Operation::Pow { base, exponent } => Expr::Pow(
+            Box::new(operand(alphabet, base)?),
+            Box::new(operand(alphabet, exponent)?),
+        ),
+        Operation::Neg { a } => Expr::Neg(Box::new(operand(alphabet, a)?)),
         Operation::Call { name, args } => {
             let mut parsed = Vec::with_capacity(args.len());
             for argument in args {
-                parsed.push(operand(argument)?);
+                parsed.push(operand(alphabet, argument)?);
             }
-            Expr::Call { name: name.clone(), args: parsed }
+            Expr::Call {
+                name: name.clone(),
+                args: parsed,
+            }
         }
-        Operation::Eval { expr } => operand(expr)?,
+        Operation::Eval { expr } => operand(alphabet, expr)?,
     };
     Ok(expr)
 }
 
 fn execute_with<G: DozGates>(g: &G, req: &Request) -> Result<Response, ApiError> {
-    let expr = build_expr(&req.op)?;
+    let expr = build_expr(&req.alphabet, &req.op)?;
     let config = EvalConfig {
         registry: dz_eval::default_registry(),
         scale: req.scale,

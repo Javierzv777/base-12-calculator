@@ -9,7 +9,7 @@
 
 use dz_api::{
     compare_backends, gate_count_csv, trace, trace_csv, trace_summary_csv, BackendKind, NumberMode,
-    Operation, TraceKind, TraceRequest,
+    DisplayAlphabet, Operation, TraceKind, TraceRequest,
 };
 use std::process::{Command, Output};
 
@@ -151,6 +151,7 @@ fn the_verdict_the_cli_prints_is_the_one_dz_api_wrote() {
         &Operation::Mul { a: "25".into(), b: "34".into() },
         NumberMode::Fixed,
         dz_api::default_scale(),
+        DisplayAlphabet::canonical(),
     )
     .expect("compares");
     let summary = comparison.verdict.expect("a verdict is written").summary;
@@ -205,6 +206,7 @@ fn the_csv_the_cli_prints_is_byte_for_byte_the_one_dz_api_builds() {
         kind: TraceKind::Add,
         a: "EEE".to_string(),
         b: "1".to_string(),
+        alphabet: DisplayAlphabet::canonical(),
     };
     let expected = trace_csv(&trace(&request).expect("traces"));
     assert_eq!(stdout(&run(&["trace", "add", "EEE", "1", "--csv"])), expected);
@@ -219,6 +221,7 @@ fn the_csv_the_cli_prints_is_byte_for_byte_the_one_dz_api_builds() {
         &Operation::Sum { a: "1".into(), b: "3".into() },
         NumberMode::Rational,
         dz_api::default_scale(),
+        DisplayAlphabet::canonical(),
     )
     .expect("compares");
     assert_eq!(

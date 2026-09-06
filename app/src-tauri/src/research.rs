@@ -7,7 +7,7 @@
 
 use crate::commands::{gate_count_dto, GateCountDto, OperationDto};
 use crate::state::AppState;
-use dz_api::{BackendCost, Trace, TraceKind, TraceRequest};
+use dz_api::{BackendCost, DisplayAlphabet, Trace, TraceKind, TraceRequest};
 use serde::Serialize;
 use tauri::State;
 
@@ -21,16 +21,26 @@ pub struct TraceStepDto {
     pub carry_out: String,
 }
 
-fn step_dtos(steps: &[dz_api::TraceStep]) -> Vec<TraceStepDto> {
+/// Render one canonical character through the presentation alphabet
+/// (`docs/07`). A trace comes out of `dz-api` in canonical glyphs; this is
+/// the boundary where it becomes what the user asked to see. The CSV
+/// export goes the other way, from `session.last_trace`, which is still
+/// canonical -- an exchange document must not depend on a visual
+/// preference.
+fn glyph(alphabet: &DisplayAlphabet, c: char) -> String {
+    alphabet.from_canonical(&c.to_string())
+}
+
+fn step_dtos(alphabet: &DisplayAlphabet, steps: &[dz_api::TraceStep]) -> Vec<TraceStepDto> {
     steps
         .iter()
         .map(|s| TraceStepDto {
             position: s.position,
-            a: s.a.to_string(),
-            b: s.b.to_string(),
-            carry_in: s.carry_in.to_string(),
-            sum: s.sum.to_string(),
-            carry_out: s.carry_out.to_string(),
+            a: glyph(alphabet, s.a),
+            b: glyph(alphabet, s.b),
+            carry_in: glyph(alphabet, s.carry_in),
+            sum: glyph(alphabet, s.sum),
+            carry_out: glyph(alphabet, s.carry_out),
         })
         .collect()
 }
@@ -86,43 +96,44 @@ pub enum TraceDto {
 }
 
 impl TraceDto {
-    fn from_trace(trace: &Trace) -> TraceDto {
+    fn from_trace(alphabet: &DisplayAlphabet, trace: &Trace) -> TraceDto {
+        let text = |s: &String| alphabet.from_canonical(s);
         match trace {
             Trace::Add(t) => TraceDto::Add {
-                a: t.a.clone(),
-                b: t.b.clone(),
-                steps: step_dtos(&t.steps),
-                result: t.result.clone(),
+                a: text(&t.a),
+                b: text(&t.b),
+                steps: step_dtos(alphabet, &t.steps),
+                result: text(&t.result),
             },
             Trace::Sub(t) => TraceDto::Sub {
-                a: t.a.clone(),
-                b: t.b.clone(),
-                ones_complement: t.ones_complement.clone(),
-                complement_steps: step_dtos(&t.complement_steps),
-                radix_complement: t.radix_complement.clone(),
-                add_steps: step_dtos(&t.add_steps),
-                raw_sum: t.raw_sum.clone(),
+                a: text(&t.a),
+                b: text(&t.b),
+                ones_complement: text(&t.ones_complement),
+                complement_steps: step_dtos(alphabet, &t.complement_steps),
+                radix_complement: text(&t.radix_complement),
+                add_steps: step_dtos(alphabet, &t.add_steps),
+                raw_sum: text(&t.raw_sum),
                 borrowed: t.borrowed,
-                decode_ones_complement: t.decode_ones_complement.clone(),
-                decode_steps: step_dtos(&t.decode_steps),
-                result: t.result.clone(),
+                decode_ones_complement: text(&t.decode_ones_complement),
+                decode_steps: step_dtos(alphabet, &t.decode_steps),
+                result: text(&t.result),
             },
             Trace::Mul(t) => TraceDto::Mul {
-                a: t.a.clone(),
-                b: t.b.clone(),
+                a: text(&t.a),
+                b: text(&t.b),
                 rows: t
                     .rows
                     .iter()
                     .map(|r| MulRowDto {
                         index: r.index,
-                        multiplier_digit: r.multiplier_digit.to_string(),
-                        row: r.row.clone(),
-                        shifted: r.shifted.clone(),
-                        accumulate_steps: step_dtos(&r.accumulate_steps),
-                        accumulated: r.accumulated.clone(),
+                        multiplier_digit: glyph(alphabet, r.multiplier_digit),
+                        row: text(&r.row),
+                        shifted: text(&r.shifted),
+                        accumulate_steps: step_dtos(alphabet, &r.accumulate_steps),
+                        accumulated: text(&r.accumulated),
                     })
                     .collect(),
-                result: t.result.clone(),
+                result: text(&t.result),
             },
         }
     }
@@ -189,12 +200,13 @@ pub fn trace_operation(
     b: String,
 ) -> Result<TraceDto, String> {
     let kind = TraceKind::parse(&kind).ok_or(format!("unknown trace kind '{}'", kind))?;
-    let backend = {
+    let (backend, alphabet) = {
         let session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
-        session.backend
+        (session.backend, session.alphabet)
     };
-    let trace = dz_api::trace(&TraceRequest { backend, kind, a, b }).map_err(|e| e.to_string())?;
-    let dto = TraceDto::from_trace(&trace);
+    let trace = dz_api::trace(&TraceRequest { backend, kind, a, b, alphabet })
+        .map_err(|e| e.to_string())?;
+    let dto = TraceDto::from_trace(&alphabet, &trace);
     let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
     session.last_trace = Some(trace);
     Ok(dto)
@@ -206,14 +218,14 @@ pub fn trace_operation(
 /// away whenever the user only wanted the answer.
 #[tauri::command]
 pub fn compare_backends(state: State<AppState>, op: OperationDto) -> Result<ComparisonDto, String> {
-    let (mode, scale) = {
+    let (mode, scale, alphabet) = {
         let session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
-        (session.mode, session.scale)
+        (session.mode, session.scale, session.alphabet)
     };
-    let comparison =
-        dz_api::compare_backends(&op.into_operation(), mode, scale).map_err(|e| e.to_string())?;
+    let comparison = dz_api::compare_backends(&op.into_operation(), mode, scale, alphabet)
+        .map_err(|e| e.to_string())?;
     let dto = ComparisonDto {
-        display: comparison.display.clone(),
+        display: alphabet.from_canonical(&comparison.display),
         costs: cost_dtos(&comparison.costs),
         verdict: comparison.verdict.as_ref().map(|v| VerdictDto {
             winner: v.winner.label().to_string(),

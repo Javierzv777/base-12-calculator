@@ -575,3 +575,105 @@ table.steps tr.pending td {
 .error {
   color: #ff8f8f;
 }
+
+/* --- The presentation-alphabet dialog (docs/07) ---------------------
+   A <dialog>, not a hand-rolled overlay: the browser gives the modal
+   backdrop, the focus trap and Escape for free, which is the whole of
+   what this needs. */
+
+.modal {
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0;
+  max-width: 420px;
+}
+
+.modal::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.modal-body {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-body h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.alphabet-fields {
+  display: flex;
+  gap: 14px;
+}
+
+.alphabet-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.alphabet-fields input {
+  width: 68px;
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-family: var(--digits);
+  font-size: 22px;
+  text-align: center;
+}
+
+.alphabet-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.alphabet-preview {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+
+#alphabet-preview {
+  font-family: var(--digits);
+  font-size: 20px;
+  color: var(--ink);
+}
+
+/* The rejection Rust wrote, shown verbatim: no second wording of the
+   rule on this side of the bridge. */
+.alphabet-error {
+  margin: 0;
+  min-height: 1em;
+  color: var(--error);
+  font-size: 12px;
+}
+
+.alphabet-error.warning {
+  color: var(--periodic);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.small.accent {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+
+.small.accent:hover:not(:disabled) {
+  filter: brightness(1.08);
+}

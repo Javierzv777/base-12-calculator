@@ -31,6 +31,8 @@ fn main() {
             commands::clear_history,
             commands::memory_store,
             commands::memory_clear,
+            commands::set_alphabet,
+            commands::reset_alphabet,
             commands::list_functions,
             research::trace_operation,
             research::compare_backends,

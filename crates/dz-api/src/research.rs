@@ -26,7 +26,7 @@ use dz_gates::circuits::{multiply_trace, ripple_add_trace, StepRecord};
 use dz_gates::{CrtGates, Digit, DozGates, GateCount, MvlGates, TableGates};
 use dz_int::subtract_trace;
 use dz_parse::alphabet::digit_to_char;
-use dz_parse::{lex, Token};
+use dz_parse::{lex, DisplayAlphabet, Token};
 
 /// One digit position of a ripple-carry run, already resolved to display
 /// glyphs.
@@ -118,6 +118,11 @@ pub struct TraceRequest {
     pub kind: TraceKind,
     pub a: String,
     pub b: String,
+    /// The presentation alphabet `a` and `b` are typed in (`docs/07`).
+    /// Input only: the resulting `Trace` carries canonical glyphs, and an
+    /// interface renders them through `DisplayAlphabet::from_canonical`.
+    /// That is what keeps the CSV export alphabet-stable.
+    pub alphabet: DisplayAlphabet,
 }
 
 /// A ripple-carry addition, position by position.
@@ -219,7 +224,12 @@ impl Trace {
 /// is not exactly one integer literal: an expression, a signed value or a
 /// Humphrey point all describe something a single circuit run cannot
 /// represent.
-fn integer_operand(text: &str, which: &str) -> Result<Vec<Digit>, ApiError> {
+fn integer_operand(
+    alphabet: &DisplayAlphabet,
+    text: &str,
+    which: &str,
+) -> Result<Vec<Digit>, ApiError> {
+    let text = &alphabet.to_canonical(text)?;
     let tokens = lex(text).map_err(|e| ApiError::Parse(dz_parse::ExprParseError::Lex(e)))?;
     match tokens.as_slice() {
         [Token::Number { int_digits, frac_digits }] if frac_digits.is_empty() => {
@@ -242,8 +252,8 @@ fn integer_operand(text: &str, which: &str) -> Result<Vec<Digit>, ApiError> {
 
 /// Run one circuit with the requested backend and record every step.
 pub fn trace(req: &TraceRequest) -> Result<Trace, ApiError> {
-    let a = integer_operand(&req.a, "A")?;
-    let b = integer_operand(&req.b, "B")?;
+    let a = integer_operand(&req.alphabet, &req.a, "A")?;
+    let b = integer_operand(&req.alphabet, &req.b, "B")?;
     match req.backend {
         BackendKind::Mvl => trace_with(&MvlGates::new(), req.kind, &a, &b),
         BackendKind::Crt => trace_with(&CrtGates::new(), req.kind, &a, &b),
@@ -261,8 +271,8 @@ pub fn trace(req: &TraceRequest) -> Result<Trace, ApiError> {
 /// the same arithmetic asks for the ordinary call, where `execute`
 /// measures both in one pass.
 pub fn trace_measured(req: &TraceRequest) -> Result<(Trace, GateCount), ApiError> {
-    let a = integer_operand(&req.a, "A")?;
-    let b = integer_operand(&req.b, "B")?;
+    let a = integer_operand(&req.alphabet, &req.a, "A")?;
+    let b = integer_operand(&req.alphabet, &req.b, "B")?;
     match req.backend {
         BackendKind::Mvl => measured_trace(&MvlGates::new(), req.kind, &a, &b),
         BackendKind::Crt => measured_trace(&CrtGates::new(), req.kind, &a, &b),
@@ -486,10 +496,16 @@ pub struct BackendComparison {
 /// calling it a result. Note that `Table` is the oracle, not a production
 /// backend -- its numbers are real but are not a "which is cheaper"
 /// answer, and an interface showing this table should label it as such.
+///
+/// `alphabet` is the presentation alphabet `op`'s operand *text* is
+/// written in, for the same reason `Request` carries one: every `dz-api`
+/// entry point that accepts user text also accepts the alphabet that text
+/// is in. The `display` that comes back is canonical.
 pub fn compare_backends(
     op: &Operation,
     mode: NumberMode,
     scale: usize,
+    alphabet: DisplayAlphabet,
 ) -> Result<BackendComparison, ApiError> {
     let mut costs = Vec::with_capacity(BackendKind::ALL.len());
     let mut display: Option<String> = None;
@@ -498,6 +514,7 @@ pub fn compare_backends(
             backend,
             mode,
             scale,
+            alphabet,
             op: op.clone(),
         };
         let response = crate::execute(&request)?;

@@ -10,7 +10,7 @@
 //! `dz-api`'s.
 
 use crate::state::{AppState, HistoryEntry};
-use dz_api::{BackendKind, NumberMode, Operation, Request};
+use dz_api::{BackendKind, DisplayAlphabet, NumberMode, Operation, Request};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -98,6 +98,12 @@ pub struct SessionDto {
     pub memory: Option<String>,
     pub backends: Vec<String>,
     pub modes: Vec<String>,
+    /// The presentation symbols for ten and eleven, as single-character
+    /// strings. The frontend paints them on the keypad and in the settings
+    /// modal; it never uses them to translate anything, because everything
+    /// it receives is already translated here.
+    pub alphabet_ten: String,
+    pub alphabet_eleven: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -110,31 +116,55 @@ pub struct FunctionDto {
     pub always_exact: bool,
 }
 
+/// Everything the session hands out is rendered through the presentation
+/// alphabet *here*, on the way out.
+///
+/// The stored text stays canonical, so this is also what makes changing
+/// the alphabet repaint the whole history rather than only the entries
+/// added afterwards (`docs/07` section 3.5). Only `display` is a dozenal
+/// value; `input` is the expression the user typed, which was already in
+/// their own alphabet, so translating it again would double-apply.
 fn session_dto(session: &crate::state::Session) -> SessionDto {
+    let alphabet = session.alphabet;
     SessionDto {
         backend: session.backend.label().to_string(),
         mode: session.mode.label().to_string(),
         scale: session.scale,
-        history: session.history.clone(),
-        memory: session.memory.clone(),
+        history: session
+            .history
+            .iter()
+            .map(|entry| HistoryEntry {
+                input: entry.input.clone(),
+                display: alphabet.from_canonical(&entry.display),
+                approximate: entry.approximate,
+                periodic: entry.periodic,
+            })
+            .collect(),
+        memory: session
+            .memory
+            .as_deref()
+            .map(|value| alphabet.from_canonical(value)),
         backends: BackendKind::ALL.iter().map(|b| b.label().to_string()).collect(),
         modes: NumberMode::ALL.iter().map(|m| m.label().to_string()).collect(),
+        alphabet_ten: alphabet.ten().to_string(),
+        alphabet_eleven: alphabet.eleven().to_string(),
     }
 }
 
 /// Evaluate one operation with the session's current settings.
 #[tauri::command]
 pub fn calc(state: State<AppState>, op: OperationDto) -> Result<ResponseDto, String> {
-    let (backend, mode, scale) = {
+    let (backend, mode, scale, alphabet) = {
         let session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
-        (session.backend, session.mode, session.scale)
+        (session.backend, session.mode, session.scale, session.alphabet)
     };
 
     let label = op.label();
     let request = Request::new(op.into_operation())
         .with_backend(backend)
         .with_mode(mode)
-        .with_scale(scale);
+        .with_scale(scale)
+        .with_alphabet(alphabet);
 
     // The error is already structured on the Rust side; it crosses the
     // bridge as its display text because that is all a dialog needs.
@@ -151,7 +181,9 @@ pub fn calc(state: State<AppState>, op: OperationDto) -> Result<ResponseDto, Str
     }
 
     Ok(ResponseDto {
-        display: response.display,
+        // The history above keeps `response.display` canonical; what the
+        // screen shows goes through the alphabet.
+        display: alphabet.from_canonical(&response.display),
         periodic_note: response.periodic_note,
         approximate: response.approximate,
         gate_count: response.gate_count.as_ref().map(gate_count_dto),
@@ -205,10 +237,52 @@ pub fn clear_history(state: State<AppState>) -> Result<SessionDto, String> {
     Ok(session_dto(&session))
 }
 
+/// Store the last result in the memory register.
+///
+/// It takes no value on purpose: the text it stores must be **canonical**,
+/// and the only canonical copy lives here. Letting the frontend pass the
+/// string back would store whatever alphabet was on screen at the time,
+/// and the register would stop repainting when the alphabet changed. Same
+/// shape as the REPL's `:mem+`.
 #[tauri::command]
-pub fn memory_store(state: State<AppState>, value: String) -> Result<SessionDto, String> {
+pub fn memory_store(state: State<AppState>) -> Result<SessionDto, String> {
     let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
-    session.memory = Some(value);
+    session.memory = session.history.last().map(|entry| entry.display.clone());
+    Ok(session_dto(&session))
+}
+
+/// Set the presentation symbols for ten and eleven.
+///
+/// Validation is `dz-api`'s -- reserved characters, a duplicated symbol,
+/// and a pair that would swallow a catalog name (`p`/`i` and `pi`). The
+/// error text crosses the bridge verbatim so the modal shows exactly what
+/// Rust decided, rather than a second wording of the same rule.
+#[tauri::command]
+pub fn set_alphabet(
+    state: State<AppState>,
+    ten: String,
+    eleven: String,
+) -> Result<SessionDto, String> {
+    let one = |text: &str, which: &str| -> Result<char, String> {
+        let mut chars = text.chars();
+        match (chars.next(), chars.next()) {
+            (Some(c), None) => Ok(c),
+            _ => Err(format!("the symbol for {} must be exactly one character", which)),
+        }
+    };
+    let ten = one(&ten, "ten")?;
+    let eleven = one(&eleven, "eleven")?;
+    let alphabet = dz_api::display_alphabet(ten, eleven).map_err(|e| e.to_string())?;
+    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    session.alphabet = alphabet;
+    Ok(session_dto(&session))
+}
+
+/// Back to `↊`/`↋`, the project's canonical pair.
+#[tauri::command]
+pub fn reset_alphabet(state: State<AppState>) -> Result<SessionDto, String> {
+    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    session.alphabet = DisplayAlphabet::canonical();
     Ok(session_dto(&session))
 }
 

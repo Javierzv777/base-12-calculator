@@ -31,12 +31,13 @@ Antes de dar por bueno un cambio: `pwsh tools/lint-purity.ps1`.
 export PATH="$PATH:/c/Users/ADMIN/.cargo/bin"   # bash
 $env:PATH += ";$env:USERPROFILE\.cargo\bin"     # powershell
 
-cargo test --workspace              # 162 tests, ~3,5 min en debug
+cargo test --workspace              # 190 tests, ~3,5 min en debug
 cargo test --workspace --release    # mucho más rápido (~segundos)
 cargo clippy --workspace --all-targets
 cargo run -p dz-cli                 # REPL
 cargo run -p dz-cli -- sin 1 --gates          # modo de una invocación
 cargo run -p dz-cli -- --functions            # catálogo de funciones
+cargo run -p dz-cli -- eval "ab" --alphabet ab # alfabeto de presentación (Fase 10)
 cargo run -p dz-cli -- trace add EEE 1        # traza paso a paso (Fase 9)
 cargo run -p dz-cli -- compare mul 25 34      # los tres backends de una vez
 cargo run -p dz-cli -- trace mul 25 34 --csv  # CSV a stdout; --csv=ruta a fichero
@@ -183,7 +184,8 @@ Detalles que no hay que "simplificar":
 
 `alphabet.rs` (glifos `0-9↊↋`, alias ASCII `X`/`T`/`E`, punto Humphrey `;`),
 `lexer.rs` (construye `Dz` dígito a dígito, **nunca** `str::parse`), `parser.rs`
-(precedencia), `ast.rs`, `format.rs` (`format_fixed`, `format_rational`, `format_dfp`).
+(precedencia), `ast.rs`, `format.rs` (`format_fixed`, `format_rational`, `format_dfp`),
+`display_alphabet.rs` (alfabeto de **presentación** configurable).
 
 Dos reglas léxicas que conviven con el alfabeto dozenal:
 
@@ -196,6 +198,33 @@ Dos reglas léxicas que conviven con el alfabeto dozenal:
 
 `Expr::Call { name, args }` cubre funciones y constantes (una constante es una
 llamada de aridad cero, así el evaluador tiene un solo camino).
+
+**El alfabeto de presentación (`display_alphabet.rs`, `docs/07`) no es el
+alfabeto dozenal.** `GLYPHS` y `char_to_digit` no se tocan: un `DisplayAlphabet`
+traduce **texto** justo antes de lexar (`to_canonical`) y texto canónico a texto
+de usuario justo para pintar (`from_canonical`). Por debajo de `dz-parse` nadie
+ve un símbolo configurado.
+
+- **No es sustitución de caracteres.** Con el par `a`/`b`, un `replace` ingenuo
+  convierte `abs(3)` en `↊↋s(3)`. `to_canonical` aplica **la misma** regla de
+  tiras maximales que el lexer, llamando a `lexer::is_identifier_run_with` con
+  el par configurado como conjunto de alias: `ab` es un número, `abs` es un
+  nombre. Por eso vive aquí y no en `dz-api` ni en JavaScript.
+- `DisplayAlphabet::new(ten, eleven, reserved_names)` rechaza símbolos
+  reservados, un par repetido, un glifo canónico en la ranura contraria, y un
+  par que haga que un nombre del catálogo lexe como número (`p`/`i` se traga
+  `pi`). Los nombres son un **parámetro** porque el registro vive en `dz-eval`,
+  dos capas por encima; el constructor que usan las interfaces es
+  `dz_api::display_alphabet(ten, eleven)`, que lo rellena.
+- Con un par configurado se aceptan el par (ambas cajas) y **siempre** `↊`/`↋`;
+  `X`/`T`/`E` dejan de valer salvo que sean el par. Revertir eso es la constante
+  `REJECT_LEGACY_ALIASES`. Con el alfabeto por defecto ambas traducciones son la
+  identidad, así que el comportamiento de siempre queda intacto.
+- `Request.alphabet` (y `TraceRequest.alphabet`, y el cuarto argumento de
+  `compare_backends`) es **sólo de entrada**. `Response.display` sigue siendo
+  canónico y cada interfaz llama a `from_canonical` al pintar. De ahí salen
+  gratis tres cosas: CSV y JSON no se traducen, el historial guarda canónico, y
+  cambiar de alfabeto repinta la lista entera.
 
 ### `crates/dz-eval` — Capa 4
 
@@ -313,6 +342,8 @@ default.json`) y contra la que se registra la ruta elegida.
 - `docs/05-funciones-cientificas.md` — algoritmos, exactitud y coste de `dz-sci`
 - `docs/05-fase7-panel-investigacion.md` — diseño de la fase 7 y, en §8, lo que
   se implementó y en qué se desvió
+- `docs/07-alfabeto-configurable.md` — alfabeto de presentación configurable y,
+  en §5, lo que se implementó, en qué se desvió y lo que **no** se hizo
 - `tools/lint-purity.ps1` — 4 reglas; la 4 detecta `*`/`%`/`/` nativos fuera de
   `backends/`, que es la clase de fallo que las otras tres no veían
 
@@ -461,6 +492,18 @@ de si esta llamada fue la primera). Detalle en
   sería otra visualización (etapas de prefijo).
 - `trace` y `compare` son de una invocación; **no existen dentro del REPL**. Su
   salida es un documento, no una línea de resultado.
+- Con un alfabeto de presentación configurado, los alias heredados `X`/`T`/`E`
+  dejan de aceptarse salvo que sean el par elegido: con `a`/`b`, teclear `E` es
+  error de sintaxis. Es el «limitar» del pedido (`docs/07` §3.3) y se revierte
+  con la constante `REJECT_LEGACY_ALIASES`. Los glifos `↊`/`↋` se aceptan
+  siempre, y con el alfabeto por defecto no cambia nada.
+- El CSV y el JSON **no** se traducen al alfabeto configurado, a propósito: son
+  documentos de intercambio y su ortografía no debe depender de una preferencia
+  visual. Tampoco se traduce la columna de *entradas* del historial, que guarda
+  el texto tal como se tecleó; sí se repinta entera la de resultados.
+- El alfabeto configurado es una preferencia por máquina (`localStorage` en la
+  GUI, `--alphabet`/`:alphabet` por invocación o sesión en el CLI). No se
+  comparte entre interfaces ni se guarda en el repositorio.
 - Una traza reporta puertas pero **no profundidad** (`depth=n/a`): los circuitos
   trazados se instancian con `Values`, que no lleva niveles de llegada.
 - La profundidad medida se corta en los puntos donde una capa superior

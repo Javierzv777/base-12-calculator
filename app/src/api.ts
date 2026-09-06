@@ -53,6 +53,12 @@ export interface Session {
   memory: string | null;
   backends: string[];
   modes: string[];
+  /// The presentation symbols for ten and eleven. The frontend paints
+  /// them; it never translates with them. Everything it receives from
+  /// Rust is already written in this alphabet, and everything it sends
+  /// back is translated by Rust on arrival (`docs/07`).
+  alphabet_ten: string;
+  alphabet_eleven: string;
 }
 
 export interface FunctionInfo {
@@ -77,10 +83,19 @@ export const setScale = (scale: number): Promise<Session> => invoke("set_scale",
 
 export const clearHistory = (): Promise<Session> => invoke("clear_history");
 
-export const memoryStore = (value: string): Promise<Session> =>
-  invoke("memory_store", { value });
+/// Stores the last result. It takes no argument because the canonical
+/// text lives on the Rust side; sending the on-screen string back would
+/// freeze the register in whatever alphabet was showing.
+export const memoryStore = (): Promise<Session> => invoke("memory_store");
 
 export const memoryClear = (): Promise<Session> => invoke("memory_clear");
+
+/// Set the symbols for ten and eleven. Rejected pairs come back as the
+/// rejection Rust wrote, which the modal shows verbatim.
+export const setAlphabet = (ten: string, eleven: string): Promise<Session> =>
+  invoke("set_alphabet", { ten, eleven });
+
+export const resetAlphabet = (): Promise<Session> => invoke("reset_alphabet");
 
 export const listFunctions = (): Promise<FunctionInfo[]> => invoke("list_functions");
 

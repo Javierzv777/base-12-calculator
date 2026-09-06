@@ -4,11 +4,13 @@
 
 pub mod alphabet;
 pub mod ast;
+pub mod display_alphabet;
 pub mod format;
 pub mod lexer;
 pub mod parser;
 
 pub use ast::Expr;
+pub use display_alphabet::{AlphabetError, DisplayAlphabet, CANONICAL_ELEVEN, CANONICAL_TEN};
 pub use format::{format_dfp, format_fixed, format_rational};
 pub use lexer::{lex, LexError, Token};
 pub use parser::{parse, ParseError};

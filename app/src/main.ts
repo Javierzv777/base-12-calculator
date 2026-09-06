@@ -15,6 +15,7 @@ import {
   type Operation,
   type Session,
 } from "./api";
+import { initAlphabetModal, restoreStoredAlphabet } from "./alphabet";
 import { display, initGlyphMode } from "./glyphs";
 import { renderHistory } from "./history";
 import { renderKeypad, renderScientificPad } from "./keypad";
@@ -45,6 +46,9 @@ let lastResult = "";
 // it against the three backends without asking the user to retype it.
 let lastOperation: Operation | null = null;
 let lastLabel = "";
+// Paints the alphabet dialog and the sidebar button from a session.
+// Assigned in `boot`; the modal owns its own DOM.
+let syncAlphabet: (next: Session) => void = () => {};
 
 function fillSelect(select: HTMLSelectElement, values: string[], current: string): void {
   select.replaceChildren(
@@ -60,6 +64,12 @@ function fillSelect(select: HTMLSelectElement, values: string[], current: string
 
 function paintSession(next: Session): void {
   session = next;
+  // The keypad carries two configurable keys and the history holds
+  // canonical text that Rust just re-rendered, so both are repainted from
+  // every session -- changing the alphabet must not leave a list half in
+  // one spelling and half in the other (`docs/07` section 3.5).
+  syncAlphabet(next);
+  renderKeypad(keypad, next.alphabet_ten, next.alphabet_eleven);
   fillSelect(modeSelect, next.modes, next.mode);
   fillSelect(backendSelect, next.backends, next.backend);
   scaleInput.value = String(next.scale);
@@ -204,12 +214,28 @@ function showView(name: string): void {
 
 async function boot(): Promise<void> {
   initGlyphMode();
-  renderKeypad(keypad);
+  syncAlphabet = initAlphabetModal({
+    onSession: (next) => {
+      paintSession(next);
+      // The big result is the one piece of dozenal text not driven by the
+      // session, so it needs an explicit repaint: Rust just re-rendered
+      // the history with the new alphabet, and the last entry is what the
+      // display is showing.
+      const last = next.history[next.history.length - 1];
+      if (last && !result.classList.contains("error")) {
+        result.textContent = display(last.display);
+        lastResult = last.display;
+      }
+    },
+  });
   renderScientificPad(science, await listFunctions());
   wireKeys(keypad);
   wireKeys(science);
 
-  paintSession(await getSession());
+  // A stored preference is re-validated by Rust before it is applied; a
+  // pair the current catalog no longer allows is dropped silently and
+  // the session stays canonical.
+  paintSession((await restoreStoredAlphabet()) ?? (await getSession()));
   paintGates(null);
 
   for (const view of ["calculator", "research"]) {
@@ -250,7 +276,9 @@ async function boot(): Promise<void> {
 
   element("mem-store").addEventListener("click", async () => {
     if (lastResult.length > 0) {
-      paintSession(await memoryStore(lastResult));
+      // No argument: Rust stores its own canonical copy of the last
+      // result, so the register repaints when the alphabet changes.
+      paintSession(await memoryStore());
     }
   });
   element("mem-recall").addEventListener("click", () => {

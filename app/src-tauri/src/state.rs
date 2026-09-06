@@ -6,7 +6,7 @@
 //! the Rust side of the bridge. The frontend never decides anything about
 //! dozenal semantics -- it renders what this state and `dz-api` hand it.
 
-use dz_api::{BackendCost, BackendKind, NumberMode, Trace};
+use dz_api::{BackendCost, BackendKind, DisplayAlphabet, NumberMode, Trace};
 use serde::Serialize;
 use std::sync::Mutex;
 
@@ -28,6 +28,16 @@ pub struct Session {
     pub backend: BackendKind,
     pub mode: NumberMode,
     pub scale: usize,
+    /// The presentation alphabet (`docs/07-alfabeto-configurable.md`).
+    ///
+    /// It lives here even though it is a per-machine *visual* preference
+    /// persisted in `localStorage`, because the translation itself is
+    /// dozenal semantics and must run in Rust: the frontend re-applies
+    /// the stored preference at boot and this field is what Rust
+    /// translates with. Everything stored below -- history, memory --
+    /// holds **canonical** text, so switching alphabets repaints the
+    /// whole list instead of mixing two spellings.
+    pub alphabet: DisplayAlphabet,
     pub history: Vec<HistoryEntry>,
     /// The M+/MR register: the last stored result, as text.
     pub memory: Option<String>,
@@ -45,6 +55,7 @@ impl Default for Session {
             backend: BackendKind::Mvl,
             mode: NumberMode::Rational,
             scale: dz_api::default_scale(),
+            alphabet: DisplayAlphabet::canonical(),
             history: Vec::new(),
             memory: None,
             last_comparison: None,

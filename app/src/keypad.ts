@@ -22,12 +22,15 @@ export interface KeySpec {
   title?: string;
 }
 
-const DIGIT_KEYS: KeySpec[] = [
+// The two keys whose symbols the user can configure (`docs/07`). Rust
+// decides which pair is legal and hands the chosen characters over in the
+// session; this module only paints them.
+const digitKeys = (ten: string, eleven: string): KeySpec[] => [
   { label: "7", insert: "7", variant: "digit" },
   { label: "8", insert: "8", variant: "digit" },
   { label: "9", insert: "9", variant: "digit" },
-  { label: "↊", insert: "↊", variant: "digit", title: "dek (diez)" },
-  { label: "↋", insert: "↋", variant: "digit", title: "el (once)" },
+  { label: ten, insert: ten, variant: "digit", title: "dek (diez)" },
+  { label: eleven, insert: eleven, variant: "digit", title: "el (once)" },
   { label: "÷", insert: "/", variant: "operator" },
 
   { label: "4", insert: "4", variant: "digit" },
@@ -75,8 +78,8 @@ function button(spec: KeySpec): HTMLButtonElement {
   return element;
 }
 
-export function renderKeypad(container: HTMLElement): void {
-  container.replaceChildren(...DIGIT_KEYS.map(button));
+export function renderKeypad(container: HTMLElement, ten: string, eleven: string): void {
+  container.replaceChildren(...digitKeys(ten, eleven).map(button));
 }
 
 const CATEGORY_TITLES: Record<string, string> = {
