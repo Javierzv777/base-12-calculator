@@ -6,6 +6,8 @@ members = [
     "crates/dz-num",
     "crates/dz-parse",
     "crates/dz-eval",
+    "crates/dz-sci",
+    "crates/dz-api",
     "crates/dz-cli",
 ]
 

@@ -655,3 +655,113 @@ escribir código:
 Ninguno de estos cinco puntos bloquea empezar el paso 1 (`dz-api`) del
 orden de implementación — todos son decidibles en paralelo o más adelante
 sin invalidar el diseño de la API.
+
+---
+
+## 9. Estado de implementación (fase 6 hecha)
+
+Las secciones 1–8 son el diseño previo; esta sección registra lo que se
+construyó, dónde se siguió el diseño al pie de la letra y dónde no, y por qué.
+
+### 9.1 Lo que existe
+
+| Pieza | Dónde | Estado |
+|---|---|---|
+| `dz-api` (capa 5, sin estado) | `crates/dz-api/src/lib.rs` | hecho, 11 tests |
+| Modo CLI de una invocación | `crates/dz-cli/src/main.rs` | hecho |
+| REPL (mismo binario, sin argumentos) | `crates/dz-cli/src/main.rs` | conservado, ahora sobre `dz-api` |
+| Comandos Tauri + `AppState` | `app/src-tauri/src/{commands,state}.rs` | hecho, compila |
+| Frontend vanilla TS + Vite | `app/src/*.ts`, `app/index.html` | hecho, `npm run build` en verde |
+| Registro de funciones + científicas | `crates/dz-eval/src/{functions,builtins}.rs`, `crates/dz-sci` | hecho, ver `docs/05-funciones-cientificas.md` |
+
+Tests: 108 en el workspace (eran 69), clippy limpio, `tools/lint-purity.ps1` en
+verde con las cuatro reglas intactas.
+
+### 9.2 Desviaciones respecto al diseño, y su motivo
+
+1. **Hay una capa nueva más, `dz-sci` (capa 2.5).** El diseño asumía que la
+   fase 6 no tocaría nada por debajo de `dz-eval`. El pedido de operaciones
+   científicas (coseno, seno, …) obligó a decidir dónde vive el análisis
+   numérico: meterlo en `dz-eval` habría mezclado "cómo se recorre un AST" con
+   "cómo converge una serie de Taylor". `dz-sci` depende solo de `dz-num` y no
+   conoce el AST; `dz-eval` la usa, `dz-api` ni la nombra salvo para el valor
+   por defecto de la escala.
+
+2. **`DozOp`/`OpRegistry` fueron reemplazados por `DozFunction`/`FnRegistry`,
+   no conservados en paralelo.** El §1.2(c) proponía conservar `DozOp` sin
+   cambios como punto de extensión del lenguaje de expresiones. En la práctica
+   `DozOp` nunca llegaba a ejecutarse: no existía `Expr::Call`, así que
+   `evaluate` no tenía forma de invocarlo, y su firma (`&[DzFixed]`) dejaba
+   fuera el modo racional, que es el modo por defecto del REPL. Mantener dos
+   registros —uno muerto y uno vivo— habría sido peor que migrar. `abs`, el
+   ejemplo que ilustraba `DozOp`, sigue existiendo como función registrada.
+
+3. **`Response` tiene un campo más de lo diseñado: `approximate`.** El §2.2
+   preveía `display`, `periodic_note` y `gate_count`. Con funciones
+   trascendentes hace falta distinguir "1/3 exacto" de "seno truncado a doce
+   dígitos": en modo racional un resultado aproximado se muestra en punto fijo
+   con prefijo `~` en vez de como una fracción de doce dígitos que afirmaría
+   una exactitud inexistente. `Request` gana igualmente `scale`, la precisión
+   de trabajo de esas funciones.
+
+4. **Los operandos de las operaciones nombradas se parsean con `parse_str`, no
+   re-lexando el literal.** El §2.2 proponía `dz_parse::lex` para obtener
+   `int_digits`/`frac_digits`. Usar el parser completo acepta cualquier
+   expresión donde se esperaba un literal (`sum "1+1" "2"` funciona) y deja un
+   único camino de texto→AST en vez de dos. Sigue sin haber una segunda ruta
+   que convierta texto en dígitos: es el lexer de `dz-parse`, como se pedía.
+
+5. **La coma tiene dos significados, resueltos por contexto léxico.** Separador
+   de argumentos dentro de la lista de una llamada, separador de agrupación de
+   cuatro dígitos fuera (`1,0000`). El lexer lleva una pila de paréntesis y
+   sabe en cuál está, así que la regla es posicional y exacta, no heurística.
+   Coste documentado para el usuario: dentro de una llamada hay que escribir
+   `10000`, no `1,0000`.
+
+6. **Identificadores frente a alias de dígitos.** `x`, `t` y `e` son alias
+   ASCII de dígitos, así que `exp` o `tan` chocarían con ellos. Regla: una
+   secuencia maximal de letras es un identificador si y solo si **alguna** de
+   sus letras no es alias de dígito. `E` y `XE` siguen siendo números; `exp`,
+   `tan` y `pi` son nombres. Ningún literal que antes lexaba como número dejó
+   de hacerlo.
+
+7. **El CLI de una invocación acepta como subcomando cualquier función del
+   registro** (`dz-cli sin 1`), además del vocabulario fijo del §3.2. Sale
+   gratis del catálogo y evita mantener una lista paralela. Se añadieron
+   `--scale`, `--gates` y `--functions` a las banderas diseñadas.
+
+8. **Glifos en la GUI: detección en tiempo de ejecución en vez de fuente
+   empotrada** (§5). El frontend mide en un `canvas` el ancho de `↊`/`↋` contra
+   un carácter de uso privado (garantizado sin glifo); si coinciden, no hay
+   glifo y toda la presentación cae a los alias `X`/`E`. Los datos que manda
+   Rust siguen usando siempre los glifos canónicos, y la sustitución es
+   estrictamente de presentación. Empotrar una fuente sigue siendo la mejora
+   natural (§8.2 sigue abierta), pero ahora el fallo tipográfico ya no rompe la
+   app en una máquina sin fuente adecuada.
+
+### 9.3 Las cinco decisiones abiertas del §8
+
+1. **Nombre del binario**: sigue siendo `dz-cli` (`dz-cli sum 1 3`). El
+   documento usaba `base12` como nombre ilustrativo; renombrar es cosmético y
+   se deja al usuario.
+2. **Fuente para ↊/↋**: sin decidir. Mitigado con el fallback automático
+   (9.2.8); la prueba visual sigue pendiente.
+3. **Persistencia del historial**: no se implementó. Vive en `AppState` y se
+   pierde al cerrar, como asumía el diseño.
+4. **Versionado de `--json`**: no se versionó. El objeto ganó el campo
+   `approximate`; si alguna herramienta externa llega a depender del formato,
+   ese es el momento de añadir `"version"`.
+5. **Variables de entorno para modo/backend**: no implementadas, no hicieron
+   falta.
+
+### 9.4 Cómo se corre
+
+```bash
+cargo run -p dz-cli                      # REPL
+cargo run -p dz-cli -- sin 1 --gates     # una invocación
+cargo run -p dz-cli -- --functions       # catálogo de funciones
+
+cd app && npm install                    # una vez
+npm run tauri dev                        # GUI en desarrollo
+npm run tauri build                      # instalador
+```

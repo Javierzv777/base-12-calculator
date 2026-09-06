@@ -10,4 +10,8 @@ pub enum Expr {
     Div(Box<Expr>, Box<Expr>),
     Mod(Box<Expr>, Box<Expr>),
     Pow(Box<Expr>, Box<Expr>),
+    /// A named function or constant: `sin(1;6)`, `log(2, 8)`, `pi`.
+    /// Constants are zero-argument calls, so the evaluator needs one
+    /// dispatch path, not two (`pi` and `pi()` parse identically).
+    Call { name: String, args: Vec<Expr> },
 }

@@ -170,3 +170,44 @@ impl DzFixed {
         am.compare(g, &bm)
     }
 }
+
+impl DzFixed {
+    /// `12^k` as an exact `DzFixed` with `scale == 0`. Built by pushing
+    /// digits (`pow12`), never by native exponentiation; exposed because
+    /// Layer-2.5 code (`dz-sci`'s range reduction) needs to scale a value
+    /// by a power of the radix without reaching for `dz-int` internals.
+    pub fn pow12(k: usize) -> DzFixed {
+        DzFixed { magnitude: pow12(k), scale: 0 }
+    }
+
+    /// Divide by `12^k` exactly, by moving the Humphrey point `k` places
+    /// left -- `scale` bookkeeping, no gate work at all. The dozenal
+    /// analogue of a binary right shift.
+    pub fn shift_point_right(&self, k: usize) -> DzFixed {
+        DzFixed { magnitude: self.magnitude.clone(), scale: self.scale + k }
+    }
+
+    /// Truncate toward zero to an integer (`scale == 0`), by dropping the
+    /// fractional digits from the little-endian magnitude -- `Vec` slicing,
+    /// not arithmetic on any digit's value.
+    pub fn trunc(&self) -> DzFixed {
+        if self.scale == 0 {
+            return self.clone();
+        }
+        let digits = self.magnitude_digits();
+        let kept: Vec<Digit> = if digits.len() > self.scale {
+            digits[self.scale..].to_vec()
+        } else {
+            vec![Digit::ZERO]
+        };
+        DzFixed {
+            magnitude: Dz::from_magnitude(self.is_negative(), kept),
+            scale: 0,
+        }
+    }
+
+    /// The fractional part, `self - trunc(self)`, keeping `self`'s sign.
+    pub fn fract<G: DozGates>(&self, g: &G) -> DzFixed {
+        self.sub(g, &self.trunc())
+    }
+}

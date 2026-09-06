@@ -1,0 +1,10 @@
+[package]
+name = "dz-sci"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+dz-gates = { path = "../dz-gates" }
+dz-int = { path = "../dz-int" }
+dz-num = { path = "../dz-num" }

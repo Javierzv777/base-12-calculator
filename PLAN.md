@@ -24,13 +24,18 @@ Esto es lo que separa este proyecto de "calculadora que convierte a base 10 y mu
 ## 1. Arquitectura por capas
 
 ```
-Capa 5  UI Tauri (teclado dozenal, visor de circuito, historial)
-Capa 4  Motor de evaluación (AST, precedencia, funciones extensibles)
-Capa 3  Lexer/Parser dozenal (nunca pasa por i64/f64)
-Capa 2  Números: punto fijo, racionales exactos, float dozenal (DFP)
-Capa 1  Enteros dozenales (Dz): suma, resta, mult, div, comparación
-Capa 0  Puertas lógicas 12-valuadas (backends intercambiables)
+Capa 6   Interfaces: REPL, CLI de una invocación, GUI Tauri
+Capa 5   dz-api — entrada única, sin estado, la misma para las tres interfaces
+Capa 4   Motor de evaluación (AST, precedencia, registro de funciones)
+Capa 3   Lexer/Parser dozenal (nunca pasa por i64/f64)
+Capa 2.5 dz-sci — funciones científicas (series sobre DzFixed)
+Capa 2   Números: punto fijo, racionales exactos, float dozenal (DFP)
+Capa 1   Enteros dozenales (Dz): suma, resta, mult, div, comparación
+Capa 0   Puertas lógicas 12-valuadas (backends intercambiables)
 ```
+
+(Las capas 5, 6 y 2.5 se añadieron en la Fase 6; el plan original tenía la UI
+hablando directamente con la capa 4.)
 
 Regla: cada capa solo puede llamar a la inmediatamente inferior. Verificado por `cargo-deny` / grafo de dependencias del workspace.
 
@@ -120,19 +125,19 @@ Aquí es donde la base 12 justifica su existencia:
 ## 6. Capa 4 — Motor de evaluación
 
 - AST + parser de precedencia (Pratt).
-- Trait `DozOp { fn arity(); fn apply(&[Value]) -> Result<Value> }` → registro de operaciones. **Este es el punto de extensión.** Añadir una función nueva = implementar el trait y registrarla, cero cambios en el core.
+- Trait `DozFunction` (`arity`, `category`, `apply_fixed`, `apply_rational`) + `FnRegistry` → registro de operaciones. **Este es el punto de extensión.** Añadir una función nueva = implementar el trait y registrarla, cero cambios en el core, y aparece sola en el REPL, en el CLI y en el teclado de la GUI. (Sustituyó a `DozOp`/`OpRegistry`, que no podía ejecutarse porque no existía `Expr::Call`; ver `docs/04-fase6-interfaces.md` §9.2.2.)
 - Operaciones v1: `+ − × ÷ mod ^ neg` y paréntesis.
 - Manejo de errores como valores (división por cero, overflow de precisión).
 
 ---
 
-## 7. Capa 5 — UI Tauri
+## 7. Capa 6 — UI Tauri
 
-- Teclado de 12 dígitos + operadores. Fuente con soporte ↊↋ (o SVG propios si falla el render — probable en Windows).
-- Display dozenal, historial, memoria.
+- Teclado de 12 dígitos + operadores, más un pad científico generado desde el catálogo del registro de funciones. Sobre los glifos ↊↋: el frontend mide si la fuente los tiene y cae a los alias `X`/`E` si no (queda pendiente empotrar una fuente).
+- Display dozenal, historial, memoria. **Hecho** — ver `app/` y `docs/04-fase6-interfaces.md` §9.
 - **Panel de investigación** (lo que distingue esta app):
-  - Selector de backend en caliente (MVL / CRT / tabla).
-  - Contador de puertas y profundidad de circuito de la última operación.
+  - Selector de backend en caliente (MVL / CRT / tabla). **Hecho.**
+  - Contador de puertas de la última operación. **Hecho** (la profundidad todavía no; se mide en pasada aparte, ver `circuits/depth.rs`).
   - Visor paso a paso del sumador ripple: ver el acarreo propagarse dígito a dígito.
   - Exportar traza a CSV para el análisis.
 
@@ -157,15 +162,21 @@ InverstigacionBase12/
 │  ├─ dz-gates/          # Capa 0 — trait + backends mvl/ crt/ table/
 │  ├─ dz-int/            # Capa 1
 │  ├─ dz-num/            # Capa 2
+│  ├─ dz-sci/            # Capa 2.5 — sqrt, exp, ln, trigonometría
 │  ├─ dz-parse/          # Capa 3
-│  ├─ dz-eval/           # Capa 4
-│  └─ dz-cli/            # REPL — primer entregable usable
-├─ app/                  # Tauri (Capa 5)
+│  ├─ dz-eval/           # Capa 4 — AST + registro de funciones
+│  ├─ dz-api/            # Capa 5 — entrada única y sin estado de las interfaces
+│  └─ dz-cli/            # Capa 6 — REPL + modo de una invocación
+├─ app/                  # Capa 6 — GUI Tauri (workspace propio)
+│  ├─ src-tauri/         # comandos, AppState, DTOs con serde
+│  └─ src/               # frontend vanilla TS + Vite
 ├─ docs/                 # notas de investigación, conteos de puertas, benchmarks
 │  ├─ 00-fundamentos.md
 │  ├─ 01-diseno-sumador.md
 │  ├─ 02-crt-vs-mvl.md
-│  └─ 03-formato-dfp.md
+│  ├─ 03-formato-dfp.md
+│  ├─ 04-fase6-interfaces.md
+│  └─ 05-funciones-cientificas.md
 └─ tools/lint-purity.ps1
 ```
 
@@ -184,13 +195,16 @@ Ver `CLAUDE.md` para rutas y comandos.
 | **3. Enteros** | `dz-int`, complemento a 12, división restauradora | **Hecha** |
 | **4. REPL** | `dz-cli` | **Hecha** — `4;6 × 3 = 11;6` |
 | **5. Fraccionarios** | Punto fijo, racionales exactos, DFP | **Hecha** — `1÷3` da `1/3` exacto |
-| **6. GUI** | App Tauri | Pendiente |
-| **7. Panel investigación** | Conteo de puertas + visor de circuito | Pendiente |
-| **8. Extensiones** | Carry-lookahead, multiplicador v2, `DozOp` | **Hecha** — v2, `lookahead_add` y el experimento de rebalanceo cerrados, `DozOp` en uso |
+| **6. GUI** | App Tauri | **Hecha** — `dz-api` + CLI de una invocación + GUI Tauri con teclado dozenal, historial y memoria |
+| **7. Panel investigación** | Conteo de puertas + visor de circuito | Parcial — el conteo por operación ya se muestra en la GUI y en `--gates`; falta el visor paso a paso y el export CSV |
+| **8. Extensiones** | Carry-lookahead, multiplicador v2, `DozOp` | **Hecha** — v2, `lookahead_add` y el experimento de rebalanceo cerrados; el registro de funciones (antes `DozOp`) en uso real |
 
-Estado: 69 tests, clippy limpio, lint de pureza con 4 reglas. El DFP se adelantó
+Estado: 108 tests, clippy limpio, lint de pureza con 4 reglas. El DFP se adelantó
 de la Fase 8 a la 5; el multiplicador v2 se adelantó de la 8 a antes de la GUI
-porque su coste bloqueaba los property tests de racionales.
+porque su coste bloqueaba los property tests de racionales. Las funciones
+trascendentes, que la §10bis-E daba por fuera de alcance, entraron con la Fase 6
+(`crates/dz-sci`, `docs/05-funciones-cientificas.md`): lo que faltaba no era
+CORDIC sino sintaxis de llamada y una capa donde poner el análisis numérico.
 
 ---
 
@@ -233,13 +247,25 @@ porque su coste bloqueaba los property tests de racionales.
   producción sin cambios. `dz-int` tampoco adoptó `lookahead_add` todavía
   (deuda de la parte D, no de esta).
 
-### B. GUI Tauri (Fase 6) — el salto grande
-- Teclado de 12 dígitos, display, historial, memoria.
-- Reutiliza `dz-eval` tal cual; el núcleo no se toca.
-- **Riesgo real:** el render de `↊`/`↋` (U+218A/218B) falla en muchas fuentes de
-  Windows. Decidir pronto entre SVG propios o alias ASCII por defecto. No dejarlo
-  para el final.
-- Prerrequisitos ya instalados (ver Sección 11).
+### B. GUI Tauri (Fase 6) — **hecha**
+- Teclado de 12 dígitos, display, historial, memoria: `app/`, Tauri 2 + vanilla
+  TS/Vite. `app/src-tauri` es un workspace propio, así que el núcleo sigue
+  compilando y testeando en segundos sin arrastrar el árbol de Tauri.
+- El núcleo no se tocó para esto, pero sí se **añadió una capa**: `dz-api`
+  (capa 5, sin estado) es la entrada única de las tres interfaces (REPL, modo de
+  una invocación, GUI). El diseño y sus desviaciones están en
+  `docs/04-fase6-interfaces.md` §§1–8 (diseño) y §9 (lo construido).
+- El modo de una invocación (`dz-cli sum 1 3`, `dz-cli eval "sin(pi/4)"`,
+  `--json`, `--gates`, `--scale`) vive en el mismo binario que el REPL.
+- **Riesgo del render de `↊`/`↋`**: mitigado sin decidir todavía la tipografía.
+  El frontend mide en un canvas si la fuente tiene los glifos y, si no, muestra
+  los alias `X`/`E` — solo en presentación; los datos que manda Rust siempre
+  llevan los glifos canónicos. Empotrar una fuente sigue siendo la mejora
+  natural.
+- Extra no planeado, pedido durante la fase: **funciones científicas**
+  (`sin`, `cos`, `tan`, `sqrt`, `exp`, `ln`, `log`, inversas, `pi`) en
+  `crates/dz-sci`, registradas en `dz-eval` y expuestas solas en las tres
+  interfaces por el catálogo del registro. Ver `docs/05-funciones-cientificas.md`.
 
 ### C. Panel de investigación (Fase 7) — donde esto deja de ser una calculadora
 - Selector de backend en caliente (`DozGates` ya es un trait, está preparado).
@@ -257,9 +283,16 @@ porque su coste bloqueaba los property tests de racionales.
 - **`digit_mul_v1`:** conservado a propósito para la comparación de la
   investigación. No borrarlo.
 
-### E. Fuera de alcance por ahora
-Funciones trascendentes (log, trig). Requieren CORDIC dozenal — es un proyecto
-propio, no una extensión. No empezarlo antes de que la Fase 7 esté cerrada.
+### E. ~~Fuera de alcance por ahora~~ — hecho, y la premisa era falsa
+Las trascendentes (log, trig) están implementadas en `crates/dz-sci` con series
+más reducción de argumento, no con CORDIC. Lo que las bloqueaba no era la
+matemática: el lenguaje no tenía sintaxis de llamada, `DozOp` nunca llegaba a
+ejecutarse, y no existía una capa para el análisis numérico. CORDIC dozenal
+sigue siendo interesante, pero como **experimento comparativo de coste** de la
+misma familia que "CRT vs MVL" o "ripple vs lookahead" — cambia
+multiplicaciones por desplazamientos y sumas, y la pregunta medible es cuánto
+baja el conteo de puertas de `sin`. Números actuales y limitaciones en
+`docs/05-funciones-cientificas.md`.
 
 ---
 
@@ -276,9 +309,11 @@ propio, no una extensión. No empezarlo antes de que la Fase 7 esté cerrada.
 
 ## 12. Riesgos y decisiones abiertas
 
-- **Render de ↊ ↋:** sigue abierto y es el riesgo principal de la Fase 6. Poco
-  soporte tipográfico en Windows. Decidir entre SVG propios o alias ASCII por
-  defecto antes de construir el teclado, no después.
+- ~~**Render de ↊ ↋:**~~ **mitigado, no cerrado.** El modo de una invocación del
+  CLI usa alias ASCII por defecto (`--unicode` para glifos); el REPL sigue con
+  glifos; la GUI detecta en tiempo de ejecución si la fuente los tiene y cae a
+  `X`/`E` si no. Falta la prueba visual y la decisión sobre empotrar una fuente
+  (`docs/04-fase6-interfaces.md` §5 y §9.2.8).
 - ~~**Detección de acarreo en CRT**~~ — **resuelto, y el resultado fue negativo.**
   CRT no compensa: necesita reconstruir el dígito para toda comparación de orden,
   176 reconstrucciones en un `half_adder` y 13.938 en un `multiply` 3×2. La

@@ -1,0 +1,335 @@
+/* Plain CSS with custom properties for the theme: four visual components
+   do not justify a design system (docs/04-fase6-interfaces.md, 6). */
+
+:root {
+  --bg: #14161c;
+  --panel: #1c1f28;
+  --panel-2: #232733;
+  --ink: #e8eaf0;
+  --ink-dim: #9aa2b4;
+  --accent: #f0a44a;
+  --accent-ink: #1a1207;
+  --line: #2e3343;
+  --approx: #7fc7ff;
+  --periodic: #f0d24a;
+  --error: #ff8b7a;
+  /* The dozenal glyphs live in a few fonts only; the stack tries the
+     likeliest, and glyphs.ts falls back to X/E if none of them has one. */
+  --digits: "Noto Sans Symbols 2", "Segoe UI Symbol", "Segoe UI Historic",
+    "DejaVu Sans", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--digits);
+  font-size: 15px;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(300px, 380px);
+  gap: 16px;
+  padding: 16px;
+  min-height: 100vh;
+  align-items: start;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.panel-head h1 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+}
+
+.subtitle {
+  margin: 2px 0 14px;
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+
+.display {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.expression {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 18px;
+  outline: none;
+  padding: 4px 2px;
+}
+
+.result {
+  display: block;
+  text-align: right;
+  font-size: 34px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  padding: 6px 2px 0;
+}
+
+.result.error {
+  color: var(--error);
+  font-size: 18px;
+  text-align: left;
+}
+
+.notes {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-height: 20px;
+  padding-top: 6px;
+}
+
+.badge {
+  font-size: 11px;
+  color: var(--accent-ink);
+  background: var(--periodic);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.badge:first-child {
+  background: var(--approx);
+}
+
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+
+.key {
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 0;
+  font-family: inherit;
+  font-size: 17px;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.06s ease;
+}
+
+.key:hover {
+  background: #2b3040;
+}
+
+.key:active {
+  transform: translateY(1px);
+}
+
+.key.operator {
+  color: var(--accent);
+}
+
+.key.control {
+  color: var(--ink-dim);
+}
+
+.key.accent {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.science {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.science-group h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+.science-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.science-keys .key {
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.side {
+  display: grid;
+  gap: 18px;
+}
+
+.side h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+.settings label {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+
+select,
+input[type="number"] {
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-family: inherit;
+  min-width: 120px;
+}
+
+.gates table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.gates th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--ink-dim);
+  padding: 2px 0;
+  font-size: 13px;
+}
+
+.gates td {
+  text-align: right;
+  padding: 2px 0;
+  font-size: 13px;
+}
+
+.gates tr.total th,
+.gates tr.total td {
+  border-top: 1px solid var(--line);
+  padding-top: 5px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.memory-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.memory-value {
+  flex: 1;
+  color: var(--ink-dim);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.small {
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.small:hover {
+  background: #2b3040;
+}
+
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.history ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.history-item:hover {
+  background: var(--panel-2);
+}
+
+.history-input {
+  color: var(--ink-dim);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.history-result {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.history-result.approximate {
+  color: var(--approx);
+}
+
+.history-result.periodic {
+  color: var(--periodic);
+}
+
+.history-empty {
+  color: var(--ink-dim);
+  font-size: 13px;
+  padding: 8px 4px;
+}
+
+/* Set by glyphs.ts when the platform has no U+218A/U+218B: the digits are
+   then shown as their ASCII aliases, which the lexer also accepts. */
+body.ascii-glyphs .key.digit {
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+}

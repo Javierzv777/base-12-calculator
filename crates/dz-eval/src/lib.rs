@@ -1,15 +1,34 @@
 //! `dz-eval` -- Layer 4: AST evaluator. Errors (division by zero, etc.) are
 //! values (`Result<DzFixed, EvalError>`), per PLAN.md Section 6.
 //!
-//! `DozOp` is the extension point: adding a function to the calculator
-//! means implementing `DozOp` and registering it in an `OpRegistry` --
-//! zero changes to `evaluate` or the core grammar (PLAN.md Section 6).
+//! `DozFunction` + `FnRegistry` (module `functions`) are the extension
+//! point: adding a function to the calculator means implementing the trait
+//! and registering it -- zero changes to `evaluate` or the grammar. The
+//! built-in set (module `builtins`) binds names to `dz-sci`'s algorithms,
+//! which is how `sin`, `ln` and `sqrt` reach the expression language.
+//!
+//! Two evaluation entry points exist per mode:
+//!
+//!   - the plain ones (`evaluate`, `evaluate_rational`, `evaluate_dfp`),
+//!     unchanged since Phase 5, which use the built-in registry and the
+//!     default working scale;
+//!   - the `_with` ones, which take an `EvalConfig` (registry + scale) and
+//!     return an `Evaluated<T>`: the value plus whether any part of the
+//!     expression was approximated. Interfaces use these, so a result that
+//!     went through `sin` can be shown as an approximation instead of
+//!     being printed as an exact fraction that happens to have twelve
+//!     correct digits.
+
+pub mod builtins;
+pub mod functions;
+
+pub use functions::{Arity, Category, DozFunction, FnContext, FnInfo, FnRegistry, FnValue};
 
 use dz_gates::DozGates;
 use dz_int::DivRemError;
 use dz_num::{DzFixed, DzFloat, DzRational, RationalError};
 use dz_parse::Expr;
-use std::collections::HashMap;
+use std::sync::OnceLock;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EvalError {
@@ -22,6 +41,11 @@ pub enum EvalError {
     ExponentTooLarge,
     UnknownFunction(String),
     WrongArity { expected: usize, got: usize },
+    /// A function was called outside its domain (`ln(0)`, `asin(2)`).
+    Domain(String),
+    /// A result would need an impractical number of digits (`exp` of a
+    /// very large argument).
+    Overflow,
 }
 
 impl std::fmt::Display for EvalError {
@@ -37,6 +61,8 @@ impl std::fmt::Display for EvalError {
             EvalError::WrongArity { expected, got } => {
                 write!(f, "wrong number of arguments: expected {}, got {}", expected, got)
             }
+            EvalError::Domain(what) => write!(f, "argument outside domain: {}", what),
+            EvalError::Overflow => write!(f, "result is too large to represent"),
         }
     }
 }
@@ -54,115 +80,67 @@ impl From<RationalError> for EvalError {
     }
 }
 
-/// Extension point (PLAN.md Section 6): implement this for a new function
-/// and register it in an `OpRegistry`; `evaluate` needs no changes.
-pub trait DozOp {
-    fn name(&self) -> &'static str;
-    fn arity(&self) -> usize;
-    fn apply(&self, g: &dyn DozGates, args: &[DzFixed]) -> Result<DzFixed, EvalError>;
-}
-
-#[derive(Default)]
-pub struct OpRegistry {
-    ops: HashMap<&'static str, Box<dyn DozOp>>,
-}
-
-impl OpRegistry {
-    pub fn new() -> Self {
-        OpRegistry { ops: HashMap::new() }
-    }
-
-    pub fn register(&mut self, op: Box<dyn DozOp>) {
-        self.ops.insert(op.name(), op);
-    }
-
-    pub fn call(&self, g: &dyn DozGates, name: &str, args: &[DzFixed]) -> Result<DzFixed, EvalError> {
-        let op = self
-            .ops
-            .get(name)
-            .ok_or_else(|| EvalError::UnknownFunction(name.to_string()))?;
-        if args.len() != op.arity() {
-            return Err(EvalError::WrongArity { expected: op.arity(), got: args.len() });
+impl From<dz_sci::SciError> for EvalError {
+    fn from(e: dz_sci::SciError) -> Self {
+        match e {
+            dz_sci::SciError::Domain(what) => EvalError::Domain(what.to_string()),
+            dz_sci::SciError::DivisionByZero => EvalError::DivisionByZero,
+            dz_sci::SciError::Overflow => EvalError::Overflow,
         }
-        op.apply(g, args)
     }
 }
 
-/// Example extension: absolute value, demonstrating the `DozOp` mechanism.
-pub struct AbsOp;
-impl DozOp for AbsOp {
-    fn name(&self) -> &'static str {
-        "abs"
+/// The built-in registry, built once. Interfaces that add their own
+/// functions build their own `FnRegistry` instead of mutating this one.
+pub fn default_registry() -> &'static FnRegistry {
+    static REGISTRY: OnceLock<FnRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(FnRegistry::with_builtins)
+}
+
+/// What a single evaluation needs beyond the expression itself: which
+/// functions exist, and how many fractional digits the approximate ones
+/// should work to.
+#[derive(Clone, Copy)]
+pub struct EvalConfig<'r> {
+    pub registry: &'r FnRegistry,
+    pub scale: usize,
+}
+
+impl EvalConfig<'static> {
+    pub fn defaults() -> EvalConfig<'static> {
+        EvalConfig {
+            registry: default_registry(),
+            scale: dz_sci::DEFAULT_SCI_SCALE,
+        }
     }
-    fn arity(&self) -> usize {
-        1
+}
+
+impl EvalConfig<'_> {
+    fn fn_context(&self) -> FnContext {
+        FnContext { scale: self.scale }
     }
-    fn apply(&self, _g: &dyn DozGates, args: &[DzFixed]) -> Result<DzFixed, EvalError> {
-        let v = &args[0];
-        Ok(if v.is_negative() { v.neg() } else { v.clone() })
-    }
+}
+
+/// A value plus whether any step that produced it was approximated.
+/// `1/3 + 1` is exact; `sin(1) + 1` is not, and stays flagged all the way
+/// out to the display.
+#[derive(Clone, Debug)]
+pub struct Evaluated<T> {
+    pub value: T,
+    pub approximate: bool,
 }
 
 /// Evaluate an AST built by `dz-parse` into a `DzFixed`, using the given
 /// `DozGates` backend for all underlying digit-level work.
 pub fn evaluate<G: DozGates>(g: &G, expr: &Expr) -> Result<DzFixed, EvalError> {
-    match expr {
-        Expr::Number { int_digits, frac_digits } => {
-            Ok(DzFixed::from_digits(false, int_digits, frac_digits))
-        }
-        Expr::Neg(inner) => Ok(evaluate(g, inner)?.neg()),
-        Expr::Add(a, b) => Ok(evaluate(g, a)?.add(g, &evaluate(g, b)?)),
-        Expr::Sub(a, b) => Ok(evaluate(g, a)?.sub(g, &evaluate(g, b)?)),
-        Expr::Mul(a, b) => Ok(evaluate(g, a)?.mul(g, &evaluate(g, b)?)),
-        Expr::Div(a, b) => {
-            let av = evaluate(g, a)?;
-            let bv = evaluate(g, b)?;
-            Ok(av.div(g, &bv, dz_num::DEFAULT_DIV_SCALE)?)
-        }
-        Expr::Mod(a, b) => {
-            let av = evaluate(g, a)?;
-            let bv = evaluate(g, b)?;
-            Ok(av.rem(g, &bv)?)
-        }
-        Expr::Pow(base, exp) => {
-            let base_v = evaluate(g, base)?;
-            let exp_v = evaluate(g, exp)?;
-            if exp_v.is_negative() {
-                return Err(EvalError::NegativeExponent);
-            }
-            // v1 supports non-negative integer exponents only (PLAN.md
-            // Section 6 lists `^` in the initial operator set without
-            // requiring fractional/negative exponents yet).
-            let exponent = dzfixed_to_u32_exponent(g, &exp_v)?;
-            Ok(base_v.pow(g, exponent))
-        }
-    }
+    Ok(evaluate_fixed_with(g, expr, &EvalConfig::defaults())?.value)
 }
 
 /// Evaluate into an exact `DzRational` -- the REPL's default mode, since
 /// `1/3` should print as the exact fraction `1/3`, not a truncated
 /// fixed-point approximation (PLAN.md Phase 5).
 pub fn evaluate_rational<G: DozGates>(g: &G, expr: &Expr) -> Result<DzRational, EvalError> {
-    match expr {
-        Expr::Number { int_digits, frac_digits } => {
-            Ok(DzRational::from_digits(g, false, int_digits, frac_digits))
-        }
-        Expr::Neg(inner) => Ok(evaluate_rational(g, inner)?.neg()),
-        Expr::Add(a, b) => Ok(evaluate_rational(g, a)?.add(g, &evaluate_rational(g, b)?)?),
-        Expr::Sub(a, b) => Ok(evaluate_rational(g, a)?.sub(g, &evaluate_rational(g, b)?)?),
-        Expr::Mul(a, b) => Ok(evaluate_rational(g, a)?.mul(g, &evaluate_rational(g, b)?)?),
-        Expr::Div(a, b) => Ok(evaluate_rational(g, a)?.div(g, &evaluate_rational(g, b)?)?),
-        Expr::Mod(a, b) => Ok(evaluate_rational(g, a)?.rem(g, &evaluate_rational(g, b)?)?),
-        Expr::Pow(base, exp) => {
-            let base_v = evaluate_rational(g, base)?;
-            let exp_v = evaluate_rational(g, exp)?;
-            if exp_v.is_negative() {
-                return Err(EvalError::NegativeExponent);
-            }
-            let exponent = rational_to_u32_exponent(g, &exp_v)?;
-            Ok(base_v.pow(g, exponent)?)
-        }
-    }
+    Ok(evaluate_rational_with(g, expr, &EvalConfig::defaults())?.value)
 }
 
 /// Evaluate into DFP (dozenal floating point): builds the exact rational
@@ -171,9 +149,169 @@ pub fn evaluate_rational<G: DozGates>(g: &G, expr: &Expr) -> Result<DzRational, 
 /// alternative -- rounding after every operation, as real hardware FP does
 /// -- is noted as a possible extension in `docs/03-formato-dfp.md`.
 pub fn evaluate_dfp<G: DozGates>(g: &G, expr: &Expr) -> Result<DzFloat, EvalError> {
-    let exact = evaluate_rational(g, expr)?;
+    Ok(evaluate_dfp_with(g, expr, &EvalConfig::defaults())?.value)
+}
+
+/// Fixed-point evaluation with an explicit registry and working scale.
+pub fn evaluate_fixed_with<G: DozGates>(
+    g: &G,
+    expr: &Expr,
+    config: &EvalConfig<'_>,
+) -> Result<Evaluated<DzFixed>, EvalError> {
+    let (value, approximate) = eval_fixed(g, expr, config)?;
+    Ok(Evaluated { value, approximate })
+}
+
+/// Exact-rational evaluation with an explicit registry and working scale.
+pub fn evaluate_rational_with<G: DozGates>(
+    g: &G,
+    expr: &Expr,
+    config: &EvalConfig<'_>,
+) -> Result<Evaluated<DzRational>, EvalError> {
+    let (value, approximate) = eval_rational(g, expr, config)?;
+    Ok(Evaluated { value, approximate })
+}
+
+/// DFP evaluation with an explicit registry and working scale.
+pub fn evaluate_dfp_with<G: DozGates>(
+    g: &G,
+    expr: &Expr,
+    config: &EvalConfig<'_>,
+) -> Result<Evaluated<DzFloat>, EvalError> {
+    let (exact, approximate) = eval_rational(g, expr, config)?;
     let approx = exact.to_fixed(g, dz_num::DEFAULT_DIV_SCALE);
-    Ok(DzFloat::from_dzfixed(g, &approx))
+    Ok(Evaluated {
+        value: DzFloat::from_dzfixed(g, &approx),
+        approximate,
+    })
+}
+
+fn eval_fixed<G: DozGates>(
+    g: &G,
+    expr: &Expr,
+    config: &EvalConfig<'_>,
+) -> Result<(DzFixed, bool), EvalError> {
+    match expr {
+        Expr::Number { int_digits, frac_digits } => {
+            Ok((DzFixed::from_digits(false, int_digits, frac_digits), false))
+        }
+        Expr::Neg(inner) => {
+            let (value, approximate) = eval_fixed(g, inner, config)?;
+            Ok((value.neg(), approximate))
+        }
+        Expr::Add(a, b) => {
+            let (av, aa) = eval_fixed(g, a, config)?;
+            let (bv, ba) = eval_fixed(g, b, config)?;
+            Ok((av.add(g, &bv), aa || ba))
+        }
+        Expr::Sub(a, b) => {
+            let (av, aa) = eval_fixed(g, a, config)?;
+            let (bv, ba) = eval_fixed(g, b, config)?;
+            Ok((av.sub(g, &bv), aa || ba))
+        }
+        Expr::Mul(a, b) => {
+            let (av, aa) = eval_fixed(g, a, config)?;
+            let (bv, ba) = eval_fixed(g, b, config)?;
+            Ok((av.mul(g, &bv), aa || ba))
+        }
+        Expr::Div(a, b) => {
+            let (av, aa) = eval_fixed(g, a, config)?;
+            let (bv, ba) = eval_fixed(g, b, config)?;
+            Ok((av.div(g, &bv, dz_num::DEFAULT_DIV_SCALE)?, aa || ba))
+        }
+        Expr::Mod(a, b) => {
+            let (av, aa) = eval_fixed(g, a, config)?;
+            let (bv, ba) = eval_fixed(g, b, config)?;
+            Ok((av.rem(g, &bv)?, aa || ba))
+        }
+        Expr::Pow(base, exp) => {
+            let (base_v, ba) = eval_fixed(g, base, config)?;
+            let (exp_v, ea) = eval_fixed(g, exp, config)?;
+            if exp_v.is_negative() {
+                return Err(EvalError::NegativeExponent);
+            }
+            // v1 supports non-negative integer exponents only (PLAN.md
+            // Section 6 lists `^` in the initial operator set without
+            // requiring fractional/negative exponents yet).
+            let exponent = dzfixed_to_u32_exponent(g, &exp_v)?;
+            Ok((base_v.pow(g, exponent), ba || ea))
+        }
+        Expr::Call { name, args } => {
+            let function = config.registry.check_arity(name, args.len())?;
+            let mut values = Vec::with_capacity(args.len());
+            let mut approximate = false;
+            for argument in args {
+                let (value, was_approximate) = eval_fixed(g, argument, config)?;
+                approximate = approximate || was_approximate;
+                values.push(value);
+            }
+            let out = function.apply_fixed(g, &values, &config.fn_context())?;
+            Ok((out.value, approximate || !out.exact))
+        }
+    }
+}
+
+fn eval_rational<G: DozGates>(
+    g: &G,
+    expr: &Expr,
+    config: &EvalConfig<'_>,
+) -> Result<(DzRational, bool), EvalError> {
+    match expr {
+        Expr::Number { int_digits, frac_digits } => Ok((
+            DzRational::from_digits(g, false, int_digits, frac_digits),
+            false,
+        )),
+        Expr::Neg(inner) => {
+            let (value, approximate) = eval_rational(g, inner, config)?;
+            Ok((value.neg(), approximate))
+        }
+        Expr::Add(a, b) => {
+            let (av, aa) = eval_rational(g, a, config)?;
+            let (bv, ba) = eval_rational(g, b, config)?;
+            Ok((av.add(g, &bv)?, aa || ba))
+        }
+        Expr::Sub(a, b) => {
+            let (av, aa) = eval_rational(g, a, config)?;
+            let (bv, ba) = eval_rational(g, b, config)?;
+            Ok((av.sub(g, &bv)?, aa || ba))
+        }
+        Expr::Mul(a, b) => {
+            let (av, aa) = eval_rational(g, a, config)?;
+            let (bv, ba) = eval_rational(g, b, config)?;
+            Ok((av.mul(g, &bv)?, aa || ba))
+        }
+        Expr::Div(a, b) => {
+            let (av, aa) = eval_rational(g, a, config)?;
+            let (bv, ba) = eval_rational(g, b, config)?;
+            Ok((av.div(g, &bv)?, aa || ba))
+        }
+        Expr::Mod(a, b) => {
+            let (av, aa) = eval_rational(g, a, config)?;
+            let (bv, ba) = eval_rational(g, b, config)?;
+            Ok((av.rem(g, &bv)?, aa || ba))
+        }
+        Expr::Pow(base, exp) => {
+            let (base_v, ba) = eval_rational(g, base, config)?;
+            let (exp_v, ea) = eval_rational(g, exp, config)?;
+            if exp_v.is_negative() {
+                return Err(EvalError::NegativeExponent);
+            }
+            let exponent = rational_to_u32_exponent(g, &exp_v)?;
+            Ok((base_v.pow(g, exponent)?, ba || ea))
+        }
+        Expr::Call { name, args } => {
+            let function = config.registry.check_arity(name, args.len())?;
+            let mut values = Vec::with_capacity(args.len());
+            let mut approximate = false;
+            for argument in args {
+                let (value, was_approximate) = eval_rational(g, argument, config)?;
+                approximate = approximate || was_approximate;
+                values.push(value);
+            }
+            let out = function.apply_rational(g, &values, &config.fn_context())?;
+            Ok((out.value, approximate || !out.exact))
+        }
+    }
 }
 
 /// Extract a small non-negative integer exponent from a `DzRational` by
@@ -217,7 +355,8 @@ fn dzfixed_to_u32_exponent<G: DozGates>(g: &G, v: &dz_num::DzFixed) -> Result<u3
     // Practical bound; `dz-cli`'s REPL is not intended for huge exponents.
     const MAX_EXPONENT: u32 = 1000;
     let mut n: u32 = 0;
-    let mut probe = dz_num::DzFixed::from_int(dz_int::Dz::from_magnitude(false, vec![dz_gates::Digit::ZERO]));
+    let mut probe =
+        dz_num::DzFixed::from_int(dz_int::Dz::from_magnitude(false, vec![dz_gates::Digit::ZERO]));
     let one = DzFixed::from_int(dz_int::Dz::from_magnitude(false, vec![dz_gates::Digit::ONE]));
     loop {
         match probe.compare(g, v) {
@@ -286,5 +425,67 @@ mod tests {
         let expected = evaluate(&g, &expr("8")).expect("literal 8 should evaluate under CrtGates");
         let fixed = evaluate(&g, &e).expect("2^3 should evaluate under CrtGates");
         assert_eq!(fixed, expected);
+    }
+
+    #[test]
+    fn exact_functions_stay_exact_in_rational_mode() {
+        let g = MvlGates::new();
+        let config = EvalConfig::defaults();
+        // floor(-1/3) is -1, exactly, and must not be flagged approximate.
+        let out = evaluate_rational_with(&g, &expr("floor(-1/3)"), &config)
+            .expect("floor of a rational evaluates");
+        assert!(!out.approximate);
+        let expected = evaluate_rational(&g, &expr("-1")).expect("literal -1");
+        assert_eq!(out.value.compare(&g, &expected), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn approximate_functions_flag_the_whole_expression() {
+        let g = MvlGates::new();
+        let config = EvalConfig { registry: default_registry(), scale: 6 };
+        let out = evaluate_rational_with(&g, &expr("sin(1) + 1"), &config)
+            .expect("sin evaluates");
+        assert!(out.approximate, "an expression containing sin is approximate");
+
+        let exact = evaluate_rational_with(&g, &expr("1/3 + 1"), &config).expect("exact");
+        assert!(!exact.approximate);
+    }
+
+    #[test]
+    fn sqrt_of_a_perfect_square_is_reported_exact() {
+        let g = MvlGates::new();
+        let config = EvalConfig { registry: default_registry(), scale: 6 };
+        let out = evaluate_rational_with(&g, &expr("sqrt(9)"), &config).expect("sqrt evaluates");
+        assert!(!out.approximate, "sqrt(9) is exactly 3");
+        let expected = evaluate_rational(&g, &expr("3")).expect("literal 3");
+        assert_eq!(out.value.compare(&g, &expected), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn unknown_function_and_wrong_arity_are_errors() {
+        let g = MvlGates::new();
+        let config = EvalConfig::defaults();
+        assert!(matches!(
+            evaluate_fixed_with(&g, &expr("nope(1)"), &config),
+            Err(EvalError::UnknownFunction(_))
+        ));
+        assert!(matches!(
+            evaluate_fixed_with(&g, &expr("sin(1, 2)"), &config),
+            Err(EvalError::WrongArity { .. })
+        ));
+    }
+
+    #[test]
+    fn domain_errors_are_values_not_panics() {
+        let g = MvlGates::new();
+        let config = EvalConfig { registry: default_registry(), scale: 4 };
+        assert!(matches!(
+            evaluate_fixed_with(&g, &expr("ln(0)"), &config),
+            Err(EvalError::Domain(_))
+        ));
+        assert!(matches!(
+            evaluate_fixed_with(&g, &expr("sqrt(-4)"), &config),
+            Err(EvalError::Domain(_))
+        ));
     }
 }

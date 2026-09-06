@@ -1,0 +1,21 @@
+[package]
+name = "dz-gui"
+version = "0.1.0"
+edition = "2021"
+authors = ["Investigacion Base 12"]
+description = "Dozenal (base 12) calculator built from 12-valued logic gates"
+
+# Deliberately its own workspace, not a member of the root one: the core
+# crates must keep building and testing in seconds without dragging in
+# Tauri's dependency tree. The only link between the two is the `dz-api`
+# path dependency below -- the same entry point the CLI uses.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dz-api = { path = "../../crates/dz-api" }

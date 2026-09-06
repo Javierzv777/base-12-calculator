@@ -31,12 +31,19 @@ Antes de dar por bueno un cambio: `pwsh tools/lint-purity.ps1`.
 export PATH="$PATH:/c/Users/ADMIN/.cargo/bin"   # bash
 $env:PATH += ";$env:USERPROFILE\.cargo\bin"     # powershell
 
-cargo test --workspace              # 65 tests, ~2 min en debug
+cargo test --workspace              # 108 tests, ~3,5 min en debug
 cargo test --workspace --release    # mucho más rápido (~segundos)
 cargo clippy --workspace --all-targets
 cargo run -p dz-cli                 # REPL
+cargo run -p dz-cli -- sin 1 --gates          # modo de una invocación
+cargo run -p dz-cli -- --functions            # catálogo de funciones
 cargo run -p dz-gates --example gate_counts   # conteos de puertas
 pwsh tools/lint-purity.ps1          # lint de pureza (4 reglas)
+
+cd app && npm install               # una vez (Vite + @tauri-apps/*)
+npm run tauri dev                   # GUI en desarrollo
+npm run tauri build                 # instalador; --no-bundle para solo el .exe
+npm run build                       # typecheck + bundle del frontend a solas
 ```
 
 La suite lenta es `dz-num/tests/rational.rs` (~106 s en debug): `DzRational::new`
@@ -45,8 +52,17 @@ No está colgado, solo es caro. En `--release` baja a ~1 s.
 
 ## Dónde está implementado qué
 
-Las capas solo llaman hacia abajo: `dz-cli` → `dz-eval` → `dz-parse` → `dz-num`
-→ `dz-int` → `dz-gates`.
+Las capas solo llaman hacia abajo:
+
+```
+dz-cli, app/src-tauri  →  dz-api  →  dz-eval  →  dz-sci  →  dz-num  →  dz-int  →  dz-gates
+                                        └──────→  dz-parse ──┘
+```
+
+`dz-api` (capa 5) es el único punto de entrada de las interfaces: ni el REPL, ni
+el modo de una invocación, ni la GUI nombran `dz_eval::evaluate*` ni tipos de
+`dz-num`. `dz-sci` (capa 2.5) es el análisis numérico de las funciones
+científicas; no conoce el AST.
 
 ### `crates/dz-gates` — Capa 0, las puertas
 
@@ -100,22 +116,89 @@ Redondeo half-even en `dfp.rs::from_dzfixed`: compara `2r` contra el divisor par
 detectar el empate exacto sin dividir, y desempata con `is_even`. No lo
 "simplifiques" — es la forma correcta.
 
+### `crates/dz-sci` — Capa 2.5, funciones científicas
+
+| Qué | Dónde |
+|---|---|
+| `sqrt` (Newton), `exp`, `ln`, `log12`, `log_base` | `src/elementary.rs` |
+| `sin`, `cos`, `tan`, `asin`, `acos`, `atan` | `src/trig.rs` |
+| `pi` (Machin), `two_pi`, `half_pi`, `ln12`, `euler` — memoizadas | `src/constants.rs` |
+| `floor`/`ceil`/`round`/`trunc`/`sign`/`abs`, en fijo **y** en racional | `src/exact.rs` |
+| Literales (`0;6` = mitad), truncado a escala, contadores | `src/util.rs` |
+
+Detalles que no hay que "simplificar":
+
+- Los denominadores de las series son **contadores dozenales** (`3, 5, 7…` o
+  `(2k)(2k+1)`) que avanzan con `add`/`mul` gate-compuestos. Calcular `2*k+1`
+  en `usize` y convertirlo sería importar el significado desde aritmética
+  nativa — y el lint lo rechaza.
+- Dividir entre dos es multiplicar por `0;6` (exacto, un dígito); escalar por
+  `12^k` es mover `scale`, cero puertas.
+- Las constantes se sintetizan una vez por escala con un `MvlGates` desechable
+  y se memoizan — mismo patrón y misma justificación que `lo_hi_table`. Por eso
+  `dz-cli eval "pi" --gates` reporta 0 puertas.
+- Diseño completo y números medidos: `docs/05-funciones-cientificas.md`.
+
 ### `crates/dz-parse` — Capa 3
 
 `alphabet.rs` (glifos `0-9↊↋`, alias ASCII `X`/`T`/`E`, punto Humphrey `;`),
 `lexer.rs` (construye `Dz` dígito a dígito, **nunca** `str::parse`), `parser.rs`
 (precedencia), `ast.rs`, `format.rs` (`format_fixed`, `format_rational`, `format_dfp`).
 
+Dos reglas léxicas que conviven con el alfabeto dozenal:
+
+- **Identificador vs. número**: una tira maximal de letras es identificador si y
+  solo si alguna de sus letras **no** es alias de dígito. `E` y `XE` siguen
+  siendo números; `exp`, `tan`, `pi` son nombres.
+- **Coma**: separador de argumentos dentro de una llamada, separador de
+  agrupación de cuatro dígitos fuera (`1,0000`). El lexer lleva una pila de
+  paréntesis, así que la regla es posicional, no heurística.
+
+`Expr::Call { name, args }` cubre funciones y constantes (una constante es una
+llamada de aridad cero, así el evaluador tiene un solo camino).
+
 ### `crates/dz-eval` — Capa 4
 
-`src/lib.rs`: `evaluate` (fixed), `evaluate_rational`, `evaluate_dfp`. Trait
-`DozOp` + `OpRegistry` son el punto de extensión para funciones nuevas: se
-implementa y se registra, sin tocar el núcleo.
+- `src/lib.rs`: `evaluate` (fixed), `evaluate_rational`, `evaluate_dfp` (firmas
+  de siempre) y sus variantes `*_with(g, expr, &EvalConfig)` que devuelven
+  `Evaluated { value, approximate }`. La marca de aproximado se propaga por todo
+  el árbol: `sin(1) + 1/3` es aproximada, `1/3 + 1` no.
+- `src/functions.rs`: trait `DozFunction` + `FnRegistry` + `FnInfo`. **Este es
+  el punto de extensión** (sustituye a `DozOp`/`OpRegistry`, que nunca llegaba a
+  ejecutarse porque no existía sintaxis de llamada). Una función implementa el
+  caso de punto fijo y, si puede ser exacta, sobrescribe el caso racional.
+- `src/builtins.rs`: la tabla nombre → algoritmo de `dz-sci`. Añadir una función
+  es una fila más; aparece sola en el REPL (`:funcs`), en el CLI (`dz-cli sin 1`)
+  y en el teclado de la GUI.
 
-### `crates/dz-cli` — Capa 5 (provisional)
+### `crates/dz-api` — Capa 5, punto de entrada de las interfaces
 
-`src/main.rs`: REPL. `:mode rational|fixed|dfp`, `:backend mvl|crt|table`, `:help`,
-`:quit`. Modo por defecto: `rational`.
+`src/lib.rs`: `Request { backend, mode, scale, op }`, `Operation` (`Sum`…`Pow`,
+`Neg`, `Call`, `Eval`), `Response { display, periodic_note, approximate,
+gate_count }`, `ApiError`, `execute`, `functions()`, `to_ascii`,
+`to_json_line`. **Sin estado**: la sesión (backend activo, historial, memoria)
+vive en cada interfaz. `reset_cost()` justo antes de despachar y `cost()`
+después, así que toda respuesta trae el coste en puertas de esa llamada.
+
+### `crates/dz-cli` — Capa 6, terminal
+
+`src/main.rs`. Sin argumentos: REPL (`:mode`, `:backend`, `:scale`, `:gates`,
+`:funcs`, `:help`, `:quit`; glifos Unicode). Con argumentos: una invocación
+(`dz-cli sum 1 3`, `dz-cli eval "sin(pi/4)"`, `dz-cli sqrt 2 --mode fixed`),
+alias ASCII por defecto, `--json`, `--unicode`, `--scale`, `--gates`,
+`--functions`. Códigos de salida: 0 ok, 1 error de cálculo, 2 error de uso.
+
+### `app/` — Capa 6, GUI Tauri
+
+`src-tauri/src/commands.rs` (comandos `calc`/`set_backend`/`set_mode`/
+`set_scale`/`get_session`/`clear_history`/`memory_*`/`list_functions`, DTOs con
+`serde` — la única frontera del repo donde entra `serde`), `src-tauri/src/state.rs`
+(`AppState`: backend, modo, escala, historial, memoria). Frontend vanilla TS +
+Vite en `app/src/`: `api.ts` (invoke tipado), `keypad.ts` (teclado dozenal fijo +
+pad científico **generado desde el catálogo**), `glyphs.ts` (detecta si la fuente
+tiene ↊/↋ midiendo en un canvas; si no, cae a `X`/`E` solo en presentación),
+`history.ts`, `main.ts`. El frontend nunca decide semántica dozenal: recibe
+strings ya formateados.
 
 ### Docs e instrumentación
 
@@ -124,6 +207,9 @@ implementa y se registra, sin tocar el núcleo.
   "¿el SOP es el backend de tabla disfrazado?"
 - `docs/02-crt-vs-mvl.md` — hallazgo: CRT no gana
 - `docs/03-formato-dfp.md` — diseño del formato flotante
+- `docs/04-fase6-interfaces.md` — diseño de la fase 6 y, en §9, lo que se
+  implementó y en qué se desvió
+- `docs/05-funciones-cientificas.md` — algoritmos, exactitud y coste de `dz-sci`
 - `tools/lint-purity.ps1` — 4 reglas; la 4 detecta `*`/`%`/`/` nativos fuera de
   `backends/`, que es la clase de fallo que las otras tres no veían
 
@@ -191,16 +277,51 @@ profundidad de `half_adder` (el máximo de ambas salidas) no baja, y la de
 completo en `docs/01-diseno-sumador.md` sección "Rebalanceo del pliegue
 lineal (experimento cerrado)".
 
+**Coste de las funciones científicas** (backend MVL, modo fijo, escala 12,
+`dz-cli eval "<expr>" --mode fixed --scale 12 --gates`):
+
+| expresión | puertas | tiempo (release) |
+|---|--:|--:|
+| `1+1` | 24.083 | — |
+| `4;6*3` | 120.444 | — |
+| `sqrt(2)` | 32.657.729 | 141 ms |
+| `sin(1)` | 27.139.541 | 557 ms |
+| `ln(2)` | 226.222.343 | 401 ms |
+| `atan(1)` | 352.673.718 | 588 ms |
+| `pi` | 0 | — |
+
+Una trascendente cuesta 2–4 órdenes de magnitud más que una multiplicación, y
+lo que domina es la **división restauradora** (`ln` y `atan` pagan las raíces
+cuadradas de su reducción de argumento, cada una con su Newton lleno de
+divisiones). `pi` marca 0 porque las constantes se sintetizan en un backend
+desechable y se memoizan (a propósito: la medición del usuario no debe depender
+de si esta llamada fue la primera). Detalle en
+`docs/05-funciones-cientificas.md`.
+
 ## Limitaciones conocidas (no son bugs por descubrir)
 
 - DFP sin subnormales ni cero con signo (`Dz` cero no tiene signo por construcción).
 - `evaluate_dfp` redondea una vez al final de la expresión, no tras cada operación,
   así que `1/0` dentro de una expresión falla en la etapa racional en vez de dar `Inf`.
-- Sin GUI Tauri (Fase 6). El carry-lookahead (Fase 8) ya existe (`lookahead_add`)
-  pero `dz-int` sigue usando `ripple_add`; la sustitución es trivial y se dejó
-  fuera para que los números publicados de `multiply`/`div_rem` sigan siendo
-  comparables con los de fases anteriores.
+- El carry-lookahead (Fase 8) ya existe (`lookahead_add`) pero `dz-int` sigue
+  usando `ripple_add`; la sustitución es trivial y se dejó fuera para que los
+  números publicados de `multiply`/`div_rem` sigan siendo comparables con los de
+  fases anteriores.
 - `1/5` no termina en base 12; el REPL lo avisa en vez de truncar en silencio.
+- `^` solo acepta exponentes enteros no negativos. Un exponente fraccionario se
+  escribe `exp(y * ln(x))`; no se cambió el operador para no alterar el
+  comportamiento (ni los tests) de la fase 5.
+- El número de Euler se llama `euler`, no `e`: `e` es el alias ASCII del dígito
+  once. Por la misma razón `x` y `t` tampoco pueden ser nombres.
+- Dentro de una llamada la coma separa argumentos, así que ahí hay que escribir
+  `10000` y no la forma agrupada `1,0000` (fuera de las llamadas sigue siendo el
+  separador de agrupación de siempre).
+- Las trascendentes son aproximaciones truncadas a la escala de trabajo y se
+  marcan con `~`; en modo racional se muestran en punto fijo en vez de como una
+  fracción de doce dígitos.
+- La GUI ya existe pero **no se ha validado visualmente en pantalla**: compila,
+  arranca y responde, y la elección de fuente para ↊/↋ sigue abierta.
+  El visor paso a paso del ripple y el export CSV (Fase 7) no están.
 
 ## Convenciones
 

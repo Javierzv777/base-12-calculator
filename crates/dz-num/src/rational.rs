@@ -250,3 +250,16 @@ impl PartialEq for DzRational {
     }
 }
 impl Eq for DzRational {}
+
+impl DzRational {
+    /// The exact rational value of a `DzFixed` (`magnitude / 12^scale`),
+    /// reduced. This is how an approximate, fixed-point-only function
+    /// (`sin`, `sqrt`, ...) re-enters the exact-rational pipeline: the
+    /// lifted value is exactly the truncated fixed-point number the
+    /// function computed -- no claim of being the true irrational value,
+    /// which is why the evaluator tracks approximate results with a flag
+    /// instead of silently presenting them as exact.
+    pub fn from_fixed<G: DozGates>(g: &G, v: &DzFixed) -> DzRational {
+        DzRational::new(g, v.magnitude.clone(), pow12(v.scale)).expect("12^k is never zero")
+    }
+}

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Calculadora Dozenal</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="panel calculator">
+        <header class="panel-head">
+          <h1>Calculadora dozenal</h1>
+          <p class="subtitle">base 12, construida desde puertas lógicas</p>
+        </header>
+
+        <div class="display">
+          <input
+            id="expression"
+            class="expression"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="4;6 * 3"
+            aria-label="Expresión"
+          />
+          <output id="result" class="result">0</output>
+          <div id="notes" class="notes"></div>
+        </div>
+
+        <div id="keypad" class="keypad"></div>
+        <div id="science" class="science"></div>
+      </section>
+
+      <aside class="panel side">
+        <section class="settings">
+          <h2>Sesión</h2>
+          <label>
+            Modo
+            <select id="mode"></select>
+          </label>
+          <label>
+            Backend
+            <select id="backend"></select>
+          </label>
+          <label>
+            Dígitos de trabajo
+            <input id="scale" type="number" min="1" max="60" step="1" />
+          </label>
+        </section>
+
+        <section class="gates">
+          <h2>Coste de la última operación</h2>
+          <table>
+            <tbody>
+              <tr><th>cycle</th><td id="g-cycle">0</td></tr>
+              <tr><th>min</th><td id="g-min">0</td></tr>
+              <tr><th>max</th><td id="g-max">0</td></tr>
+              <tr><th>lit</th><td id="g-lit">0</td></tr>
+              <tr><th>thr</th><td id="g-thr">0</td></tr>
+              <tr class="total"><th>total</th><td id="g-total">0</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="memory">
+          <h2>Memoria</h2>
+          <div class="memory-row">
+            <span id="memory-value" class="memory-value">vacía</span>
+            <button id="mem-store" type="button" class="small">M+</button>
+            <button id="mem-recall" type="button" class="small">MR</button>
+            <button id="mem-clear" type="button" class="small">MC</button>
+          </div>
+        </section>
+
+        <section class="history">
+          <div class="history-head">
+            <h2>Historial</h2>
+            <button id="history-clear" type="button" class="small">limpiar</button>
+          </div>
+          <ul id="history-list"></ul>
+        </section>
+      </aside>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

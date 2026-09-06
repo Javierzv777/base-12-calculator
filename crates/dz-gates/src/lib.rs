@@ -7,10 +7,12 @@
 pub mod backends;
 pub mod circuits;
 pub mod digit;
+pub mod dyn_gates;
 pub mod gatecount;
 pub mod traits;
 
 pub use backends::{oracle_add, oracle_mul, CrtGates, MvlGates, TableGates};
 pub use digit::{Digit, RADIX};
+pub use dyn_gates::DynGates;
 pub use gatecount::GateCount;
 pub use traits::DozGates;

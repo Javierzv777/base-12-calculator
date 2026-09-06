@@ -1,6 +1,10 @@
 //! Recursive-descent / precedence-climbing parser over `Token`s produced by
 //! `crate::lexer`. Precedence, low to high: `+ -`, `* / %`, unary `-`, `^`
-//! (right-associative), parens/number.
+//! (right-associative), parens/number/call.
+//!
+//! Function calls (`sin(x)`, `log(2, 8)`) and constants (`pi`) both parse
+//! into `Expr::Call`; the evaluator resolves the name against its function
+//! registry, so adding a function never touches this file.
 
 use crate::ast::Expr;
 use crate::lexer::Token;
@@ -97,11 +101,48 @@ impl<'a> Parser<'a> {
         Ok(base)
     }
 
+    /// `name` or `name(arg, arg, ...)`. A bare identifier is a
+    /// zero-argument call, which is how constants (`pi`) reach the
+    /// evaluator's function registry without needing a second syntax.
+    fn parse_call(&mut self, name: String) -> Result<Expr, ParseError> {
+        if !matches!(self.peek(), Some(Token::LParen)) {
+            return Ok(Expr::Call { name, args: Vec::new() });
+        }
+        self.advance(); // '('
+        let mut args = Vec::new();
+        if matches!(self.peek(), Some(Token::RParen)) {
+            self.advance();
+            return Ok(Expr::Call { name, args });
+        }
+        loop {
+            args.push(self.parse_expr()?);
+            match self.advance().cloned() {
+                Some(Token::Comma) => continue,
+                Some(Token::RParen) => break,
+                Some(other) => {
+                    return Err(ParseError {
+                        message: format!(
+                            "expected ',' or ')' in call to '{}', found {:?}",
+                            name, other
+                        ),
+                    })
+                }
+                None => {
+                    return Err(ParseError {
+                        message: format!("unclosed argument list in call to '{}'", name),
+                    })
+                }
+            }
+        }
+        Ok(Expr::Call { name, args })
+    }
+
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         match self.advance().cloned() {
             Some(Token::Number { int_digits, frac_digits }) => {
                 Ok(Expr::Number { int_digits, frac_digits })
             }
+            Some(Token::Ident(name)) => self.parse_call(name),
             Some(Token::LParen) => {
                 let inner = self.parse_expr()?;
                 match self.advance() {

@@ -9,7 +9,4 @@ name = "dz-cli"
 path = "src/main.rs"
 
 [dependencies]
-dz-gates = { path = "../dz-gates" }
-dz-int = { path = "../dz-int" }
-dz-parse = { path = "../dz-parse" }
-dz-eval = { path = "../dz-eval" }
+dz-api = { path = "../dz-api" }

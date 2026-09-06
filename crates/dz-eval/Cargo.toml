@@ -9,3 +9,4 @@ dz-gates = { path = "../dz-gates" }
 dz-int = { path = "../dz-int" }
 dz-num = { path = "../dz-num" }
 dz-parse = { path = "../dz-parse" }
+dz-sci = { path = "../dz-sci" }
