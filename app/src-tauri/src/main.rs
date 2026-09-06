@@ -27,6 +27,8 @@ fn main() {
             commands::set_backend,
             commands::set_mode,
             commands::set_scale,
+            commands::set_input_base,
+            commands::chain_operand,
             commands::get_session,
             commands::clear_history,
             commands::memory_store,

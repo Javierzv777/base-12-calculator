@@ -13,5 +13,8 @@
 pub mod dzint;
 pub mod trace;
 
-pub use dzint::{dz_to_small_usize, small_usize_to_dz, DivRemError, Dz, NoSubTrace, Sign, SubTraceSink};
+pub use dzint::{
+    dz_to_small_usize, from_base10_digits, pow10, small_usize_to_dz, to_base10_digits, DivRemError,
+    Dz, NoSubTrace, Sign, SubTraceSink,
+};
 pub use trace::{subtract_trace, SubTrace};

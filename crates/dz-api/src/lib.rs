@@ -44,6 +44,47 @@ use dz_parse::{format_dfp, format_fixed, format_rational, parse_str, Expr, ExprP
 /// validation needs.
 pub use dz_parse::{AlphabetError, DisplayAlphabet};
 
+/// The input base (`docs/10-entrada-base-10.md`).
+///
+/// Re-exported for the same reason [`DisplayAlphabet`] is: an interface
+/// names the setting, never the `dz-parse` module that implements it.
+/// Unlike the alphabet, this one is not free -- see [`Request::input_base`].
+pub use dz_parse::{from_dozenal_text, to_dozenal_text, InputBase, InputBaseError};
+
+/// Rewrite a formatted, canonical dozenal result back into `base`, for
+/// result chaining (`docs/09-encadenado-de-resultado.md`).
+///
+/// This is the entry point an interface calls, so that no interface names
+/// `dz-parse` or has to build a backend of its own: the conversion is gate
+/// work, and the count of that work comes back alongside the text so the
+/// interface can show what chaining cost.
+///
+/// It is a separate function rather than a field on `Response` because
+/// chaining is a *later* user gesture -- the result is displayed first,
+/// and only converted if the user types an operator next. Charging every
+/// call for a conversion nobody asked for would put a cost in
+/// `Response.gate_count` that no arithmetic in the request incurred.
+pub fn chain_operand(
+    backend: BackendKind,
+    base: InputBase,
+    display: &str,
+) -> Result<(String, GateCount), ApiError> {
+    fn convert<G: DozGates>(
+        g: &G,
+        base: InputBase,
+        display: &str,
+    ) -> Result<(String, GateCount), ApiError> {
+        g.reset_cost();
+        let text = from_dozenal_text(g, base, display)?;
+        Ok((text, g.cost()))
+    }
+    match backend {
+        BackendKind::Mvl => convert(&MvlGates::new(), base, display),
+        BackendKind::Crt => convert(&CrtGates::new(), base, display),
+        BackendKind::Table => convert(&TableGates::new(), base, display),
+    }
+}
+
 /// Which of the three `DozGates` backends a single call uses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackendKind {
@@ -149,6 +190,18 @@ pub struct Request {
     /// the alphabet repaints old results instead of leaving a mixed list
     /// (`docs/07` sections 3.4 and 3.5).
     pub alphabet: DisplayAlphabet,
+    /// Which base the operand *text* of `op` is written in. Input only, in
+    /// exactly the sense `alphabet` is: `Response.display` is always
+    /// dozenal, because converting back would be a second, unmeasured
+    /// arithmetic path and the project has none.
+    ///
+    /// Unlike the alphabet, this setting is **not free**. A dozenal
+    /// literal costs nothing to read -- the digit's position in the
+    /// magnitude already is its weight -- while a base-ten literal has to
+    /// have its weights multiplied out with gates
+    /// (`dz_int::from_base10_digits`). That cost is deliberately inside
+    /// the measured window, so `Response.gate_count` includes it.
+    pub input_base: InputBase,
     pub op: Operation,
 }
 
@@ -161,6 +214,7 @@ impl Request {
             mode: NumberMode::Rational,
             scale: dz_sci::DEFAULT_SCI_SCALE,
             alphabet: DisplayAlphabet::canonical(),
+            input_base: InputBase::Twelve,
             op,
         }
     }
@@ -182,6 +236,11 @@ impl Request {
 
     pub fn with_alphabet(mut self, alphabet: DisplayAlphabet) -> Request {
         self.alphabet = alphabet;
+        self
+    }
+
+    pub fn with_input_base(mut self, input_base: InputBase) -> Request {
+        self.input_base = input_base;
         self
     }
 }
@@ -259,6 +318,10 @@ pub enum ApiError {
     /// presentation alphabet (`docs/07`): a legacy alias that this
     /// alphabet does not spell, most often.
     Alphabet(AlphabetError),
+    /// The request's text could not be read in the configured input base
+    /// (`docs/10`): a dozenal-only digit typed while the base is ten, most
+    /// often.
+    InputBase(InputBaseError),
 }
 
 impl std::fmt::Display for ApiError {
@@ -268,6 +331,7 @@ impl std::fmt::Display for ApiError {
             ApiError::Eval(e) => write!(f, "{}", e),
             ApiError::Trace(message) => write!(f, "{}", message),
             ApiError::Alphabet(e) => write!(f, "{}", e),
+            ApiError::InputBase(e) => write!(f, "{}", e),
         }
     }
 }
@@ -276,6 +340,12 @@ impl std::error::Error for ApiError {}
 impl From<AlphabetError> for ApiError {
     fn from(e: AlphabetError) -> ApiError {
         ApiError::Alphabet(e)
+    }
+}
+
+impl From<InputBaseError> for ApiError {
+    fn from(e: InputBaseError) -> ApiError {
+        ApiError::InputBase(e)
     }
 }
 
@@ -311,13 +381,31 @@ pub fn execute(req: &Request) -> Result<Response, ApiError> {
     }
 }
 
-/// Parse one piece of operand text, translating it out of the user's
-/// presentation alphabet first.
+/// Parse one piece of operand text, first rewriting it out of the user's
+/// input base and then out of their presentation alphabet.
 ///
-/// The translation is a `dz-parse` call, not a rule re-derived here: this
+/// Both translations are `dz-parse` calls, not rules re-derived here: this
 /// layer knows *when* to translate, `dz-parse` knows *how*.
-fn operand(alphabet: &DisplayAlphabet, text: &str) -> Result<Expr, ApiError> {
-    let canonical = alphabet.to_canonical(text)?;
+///
+/// The two settings do not compose in the obvious way, and the asymmetry
+/// is deliberate. In base ten no letter is a digit, so a run of letters is
+/// unambiguously a name and there is nothing for the presentation alphabet
+/// to translate -- applying it would only give the user a second, useless
+/// way to spell digits that base ten does not have. In base twelve the
+/// input-base rewrite is the identity and costs no gate, so the pipeline
+/// is exactly what it was.
+fn operand<G: DozGates>(
+    g: &G,
+    alphabet: &DisplayAlphabet,
+    input_base: InputBase,
+    text: &str,
+) -> Result<Expr, ApiError> {
+    let text = to_dozenal_text(g, input_base, text)?;
+    let canonical = if input_base.is_dozenal() {
+        alphabet.to_canonical(&text)?
+    } else {
+        text
+    };
     Ok(parse_str(&canonical)?)
 }
 
@@ -328,58 +416,70 @@ fn operand(alphabet: &DisplayAlphabet, text: &str) -> Result<Expr, ApiError> {
 /// A `Call`'s *name* is never translated: it comes from the registry
 /// catalog, not from the user's keyboard, and is always spelled the way
 /// `dz-eval` registered it.
-fn build_expr(alphabet: &DisplayAlphabet, op: &Operation) -> Result<Expr, ApiError> {
+fn build_expr<G: DozGates>(
+    g: &G,
+    alphabet: &DisplayAlphabet,
+    input_base: InputBase,
+    op: &Operation,
+) -> Result<Expr, ApiError> {
     let expr = match op {
         Operation::Sum { a, b } => Expr::Add(
-            Box::new(operand(alphabet, a)?),
-            Box::new(operand(alphabet, b)?),
+            Box::new(operand(g, alphabet, input_base, a)?),
+            Box::new(operand(g, alphabet, input_base, b)?),
         ),
         Operation::Sub { a, b } => Expr::Sub(
-            Box::new(operand(alphabet, a)?),
-            Box::new(operand(alphabet, b)?),
+            Box::new(operand(g, alphabet, input_base, a)?),
+            Box::new(operand(g, alphabet, input_base, b)?),
         ),
         Operation::Mul { a, b } => Expr::Mul(
-            Box::new(operand(alphabet, a)?),
-            Box::new(operand(alphabet, b)?),
+            Box::new(operand(g, alphabet, input_base, a)?),
+            Box::new(operand(g, alphabet, input_base, b)?),
         ),
         Operation::Div { a, b } => Expr::Div(
-            Box::new(operand(alphabet, a)?),
-            Box::new(operand(alphabet, b)?),
+            Box::new(operand(g, alphabet, input_base, a)?),
+            Box::new(operand(g, alphabet, input_base, b)?),
         ),
         Operation::Mod { a, b } => Expr::Mod(
-            Box::new(operand(alphabet, a)?),
-            Box::new(operand(alphabet, b)?),
+            Box::new(operand(g, alphabet, input_base, a)?),
+            Box::new(operand(g, alphabet, input_base, b)?),
         ),
         Operation::Pow { base, exponent } => Expr::Pow(
-            Box::new(operand(alphabet, base)?),
-            Box::new(operand(alphabet, exponent)?),
+            Box::new(operand(g, alphabet, input_base, base)?),
+            Box::new(operand(g, alphabet, input_base, exponent)?),
         ),
-        Operation::Neg { a } => Expr::Neg(Box::new(operand(alphabet, a)?)),
+        Operation::Neg { a } => Expr::Neg(Box::new(operand(g, alphabet, input_base, a)?)),
         Operation::Call { name, args } => {
             let mut parsed = Vec::with_capacity(args.len());
             for argument in args {
-                parsed.push(operand(alphabet, argument)?);
+                parsed.push(operand(g, alphabet, input_base, argument)?);
             }
             Expr::Call {
                 name: name.clone(),
                 args: parsed,
             }
         }
-        Operation::Eval { expr } => operand(alphabet, expr)?,
+        Operation::Eval { expr } => operand(g, alphabet, input_base, expr)?,
     };
     Ok(expr)
 }
 
 fn execute_with<G: DozGates>(g: &G, req: &Request) -> Result<Response, ApiError> {
-    let expr = build_expr(&req.alphabet, &req.op)?;
-    let config = EvalConfig {
-        registry: dz_eval::default_registry(),
-        scale: req.scale,
-    };
-
-    // Everything before this point is text handling; the measurement
-    // starts here so a caller reading `gate_count` sees the cost of the
-    // arithmetic, not of parsing.
+    // The measurement window opens *before* the text is read, and that
+    // placement is the whole point of the base-ten phase.
+    //
+    // It used to open after `build_expr`, on the reasoning that a caller
+    // reading `gate_count` wants the cost of the arithmetic and not of
+    // parsing. That reasoning assumed parsing is not arithmetic -- true
+    // in base twelve, where a literal's digits are already its magnitude
+    // and the lexer is a `Vec::push`, and false in base ten, where every
+    // weight has to be multiplied out with real gates
+    // (`dz_int::from_base10_digits`). Leaving the window where it was
+    // would have reported the interesting cost as zero.
+    //
+    // Moving it changes no published number, and that is checked rather
+    // than asserted: in base twelve `build_expr` still invokes no
+    // primitive, so `1+1` stays at 24,083 gates and depth 441, and
+    // `examples/gate_counts` prints byte-identical output.
     //
     // Depth is measured in the *same* pass, not a second one. The
     // depth-carrying instantiation of the circuits invokes the backend
@@ -388,6 +488,12 @@ fn execute_with<G: DozGates>(g: &G, req: &Request) -> Result<Response, ApiError>
     // bookkeeping rides alongside. `dz-api/tests/depth.rs` pins that.
     let scope = DepthScope::enter();
     g.reset_cost();
+
+    let expr = build_expr(g, &req.alphabet, req.input_base, &req.op)?;
+    let config = EvalConfig {
+        registry: dz_eval::default_registry(),
+        scale: req.scale,
+    };
 
     let (display, periodic_note, approximate) = match req.mode {
         NumberMode::Rational => {

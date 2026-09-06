@@ -7,16 +7,87 @@
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
+    <!--
+      Three views: two whole calculators standing side by side, each with
+      its own session in Rust, and the research panel. The base-ten one is
+      first and is the default, because it is the one that needs no
+      dozenal knowledge to use (docs/10, section 8).
+    -->
     <nav class="tabs" role="tablist" aria-label="Vistas">
-      <button id="tab-calculator" class="tab active" type="button" role="tab" data-view="calculator" aria-selected="true">
-        Calculadora
+      <button id="tab-simple" class="tab active" type="button" role="tab" data-view="simple" aria-selected="true">
+        Calculadora dozenal desde base 10
+      </button>
+      <button id="tab-calculator" class="tab" type="button" role="tab" data-view="calculator" aria-selected="false">
+        Calculadora dozenal
       </button>
       <button id="tab-research" class="tab" type="button" role="tab" data-view="research" aria-selected="false">
         Investigación
       </button>
     </nav>
 
-    <main id="view-calculator" class="app view" role="tabpanel" aria-labelledby="tab-calculator">
+    <main id="view-simple" class="app view" role="tabpanel" aria-labelledby="tab-simple">
+      <section class="panel calculator">
+        <header class="panel-head">
+          <h1>Calculadora dozenal desde base 10</h1>
+          <p class="subtitle">
+            escribe en base 10, lee en base 12 — la lectura del decimal
+            también se hace con puertas
+          </p>
+        </header>
+
+        <div class="display">
+          <div class="expression-row">
+            <input
+              id="s-expression"
+              class="expression"
+              type="text"
+              spellcheck="false"
+              autocomplete="off"
+              inputmode="decimal"
+              placeholder="144 + 11"
+              aria-label="Expresión en base 10"
+            />
+          </div>
+          <output id="s-result" class="result big">0</output>
+          <div id="s-notes" class="notes"></div>
+          <!--
+            The hook of this face: a quiet line saying what the answer
+            cost, and a way in to the panel that explains it.
+          -->
+          <p id="s-gate-line" class="gate-line" hidden>
+            <span id="s-gate-total">0 puertas</span
+            ><span id="s-gate-chain" class="muted"></span>
+            ·
+            <button id="s-gates-link" type="button" class="linkish">ver</button>
+          </p>
+        </div>
+
+        <div id="s-keypad" class="keypad simple-keypad"></div>
+      </section>
+
+      <aside class="panel side">
+        <section class="settings">
+          <h2>Cómo se lee</h2>
+          <p class="muted small-note">
+            Lo que escribes se lee en <strong>base 10</strong>; el resultado
+            se muestra en <strong>base 12</strong> y es exacto (modo
+            racional). Esta cara no tiene ajustes: para cambiar modo,
+            backend o dígitos de trabajo, usa la pestaña «Calculadora
+            dozenal», que es una calculadora aparte con su propio estado.
+          </p>
+        </section>
+
+        <section class="history">
+          <div class="history-head">
+            <h2>Historial</h2>
+            <button id="s-history-clear" type="button" class="small">limpiar</button>
+          </div>
+          <ul id="s-history-list"></ul>
+        </section>
+      </aside>
+    </main>
+
+    <main id="view-calculator" class="app view hidden" role="tabpanel" aria-labelledby="tab-calculator">
       <section class="panel calculator">
         <header class="panel-head">
           <h1>Calculadora dozenal</h1>

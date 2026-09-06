@@ -31,13 +31,14 @@ Antes de dar por bueno un cambio: `pwsh tools/lint-purity.ps1`.
 export PATH="$PATH:/c/Users/ADMIN/.cargo/bin"   # bash
 $env:PATH += ";$env:USERPROFILE\.cargo\bin"     # powershell
 
-cargo test --workspace              # 190 tests, ~3,5 min en debug
+cargo test --workspace              # 215 tests, ~3,5 min en debug
 cargo test --workspace --release    # mucho más rápido (~segundos)
 cargo clippy --workspace --all-targets
 cargo run -p dz-cli                 # REPL
 cargo run -p dz-cli -- sin 1 --gates          # modo de una invocación
 cargo run -p dz-cli -- --functions            # catálogo de funciones
 cargo run -p dz-cli -- eval "ab" --alphabet ab # alfabeto de presentación (Fase 10)
+cargo run -p dz-cli -- eval "144+11" --input-base 10  # entrada decimal, leída con puertas
 cargo run -p dz-cli -- trace add EEE 1        # traza paso a paso (Fase 9)
 cargo run -p dz-cli -- compare mul 25 34      # los tres backends de una vez
 cargo run -p dz-cli -- trace mul 25 34 --csv  # CSV a stdout; --csv=ruta a fichero
@@ -185,16 +186,19 @@ Detalles que no hay que "simplificar":
 `alphabet.rs` (glifos `0-9↊↋`, alias ASCII `X`/`T`/`E`, punto Humphrey `;`),
 `lexer.rs` (construye `Dz` dígito a dígito, **nunca** `str::parse`), `parser.rs`
 (precedencia), `ast.rs`, `format.rs` (`format_fixed`, `format_rational`, `format_dfp`),
-`display_alphabet.rs` (alfabeto de **presentación** configurable).
+`display_alphabet.rs` (alfabeto de **presentación** configurable),
+`input_base.rs` (base de **entrada** configurable, `docs/10`).
 
-Dos reglas léxicas que conviven con el alfabeto dozenal:
+Dos reglas léxicas que conviven con el alfabeto dozenal. Ambas viven en
+`lexer.rs` y se **reutilizan**, nunca se copian: `is_identifier_run_with` la
+primera, `CallParens` la segunda, las dos `pub(crate)`.
 
 - **Identificador vs. número**: una tira maximal de letras es identificador si y
   solo si alguna de sus letras **no** es alias de dígito. `E` y `XE` siguen
   siendo números; `exp`, `tan`, `pi` son nombres.
 - **Coma**: separador de argumentos dentro de una llamada, separador de
   agrupación de cuatro dígitos fuera (`1,0000`). El lexer lleva una pila de
-  paréntesis, así que la regla es posicional, no heurística.
+  paréntesis (`CallParens`), así que la regla es posicional, no heurística.
 
 `Expr::Call { name, args }` cubre funciones y constantes (una constante es una
 llamada de aridad cero, así el evaluador tiene un solo camino).
@@ -225,6 +229,31 @@ ve un símbolo configurado.
   canónico y cada interfaz llama a `from_canonical` al pintar. De ahí salen
   gratis tres cosas: CSV y JSON no se traducen, el historial guarda canónico, y
   cambiar de alfabeto repinta la lista entera.
+
+**La base de entrada (`input_base.rs`, `docs/10`) es el hermano del alfabeto, y
+la diferencia importante es que ésta NO es gratis.** Un alfabeto distinto es un
+reetiquetado: cada posición vale lo mismo. Base 10 no: en una magnitud dozenal
+la posición de un dígito *es* su peso, así que leer `100` cuesta cero puertas,
+mientras que en base 10 hay que **calcular** cada peso.
+
+- `to_dozenal_text(g, base, text)` (texto de usuario → dozenal canónico) y
+  `from_dozenal_text(g, base, text)` (resultado formateado → base 10). Mismo par
+  que `to_canonical`/`from_canonical`, pero las dos direcciones son aritmética:
+  la ida son multiplicaciones (`dz_int::from_base10_digits`, Horner) y la vuelta
+  divisiones (`dz_int::to_base10_digits`), que es ~7× más caro.
+- **En base 10 no se aplica `to_canonical`.** Sin letras-dígito, `abs` es
+  inequívocamente un nombre. Es una simplificación real y deliberada, y es la
+  razón de que los dos ajustes compongan sin conocerse.
+- Una fracción decimal se reescribe como división exacta: `0.5` → `(5/↊)`, `0.1`
+  → `(1/↊)`. **No** se trunca a un literal dozenal, que tiraría la exactitud
+  antes del evaluador.
+- La vuelta emite fracción exacta cuando el valor no tiene decimal finito
+  (`0;4` → `4/12`), nunca un truncado silencioso — mismo criterio que `docs/08`
+  §3.2 tomó en el sentido contrario.
+- `dz_api::chain_operand(backend, base, display)` es la puerta de la vuelta para
+  las interfaces, y devuelve el `GateCount` de la conversión. Es función y no un
+  campo de `Response` porque encadenar es un gesto *posterior*: cargar toda
+  llamada con una conversión que nadie pidió contaminaría `gate_count`.
 
 ### `crates/dz-eval` — Capa 4
 
@@ -307,22 +336,56 @@ agente; sus ejemplos están copiados de corridas reales del binario.
 ### `app/` — Capa 6, GUI Tauri
 
 `src-tauri/src/commands.rs` (comandos `calc`/`set_backend`/`set_mode`/
-`set_scale`/`get_session`/`clear_history`/`memory_*`/`list_functions`, DTOs con
-`serde` — la única frontera del repo donde entra `serde`),
+`set_scale`/`set_input_base`/`chain_operand`/`get_session`/`clear_history`/
+`memory_*`/`set_alphabet`/`reset_alphabet`/`list_functions`, DTOs con `serde` —
+la única frontera del repo donde entra `serde`),
 `src-tauri/src/research.rs` (Fase 7: `trace_operation`, `compare_backends`,
-`export_csv`), `src-tauri/src/state.rs` (`AppState`: backend, modo, escala,
-historial, memoria, y la última comparación/traza para el export).
+`export_csv`), `src-tauri/src/state.rs` (`Sessions`, `Session`, `Face`).
 
-Dos vistas de nivel superior que el usuario alterna, **Calculadora** (por
-defecto) e **Investigación**; no es un panel que reemplace la barra lateral.
-Frontend vanilla TS + Vite en `app/src/`: `api.ts` (invoke tipado), `keypad.ts`
-(teclado dozenal fijo + pad científico **generado desde el catálogo**),
-`glyphs.ts` (detecta si la fuente tiene ↊/↋ midiendo en un canvas; si no, cae a
-`X`/`E` solo en presentación), `history.ts`, `research.ts` (desglose +
-profundidad, tabla de tres backends, visor paso a paso con reproducción, botones
-de export), `main.ts`. El frontend nunca decide semántica dozenal: recibe
-strings ya formateados, y en el panel de investigación recibe además los pasos
-como `char` sueltos — no puede sumar dos `char`.
+**Dos calculadoras en paralelo, no dos vistas de una** (`docs/10` §8). `AppState`
+guarda `Sessions { simple, advanced }` y **cada comando nombra su cara** con un
+parámetro `face: Face` (`"simple"`/`"advanced"`); no hay «cara actual» en Rust, a
+propósito, porque sería un tercer estado que las dos visibles podrían
+contradecir. La sesión `simple` está fijada a `input_base = Ten` + modo
+`rational` + MVL y su cara no ofrece ningún control para cambiarlo; la
+`advanced` arranca como siempre (`Twelve`) y lo configura todo. Cada una lleva su
+entrada a medias, su resultado, su historial, su memoria y sus ajustes: cambiar
+modo o backend en una no toca la otra, y los historiales no se mezclan.
+
+Tres vistas de nivel superior que el usuario alterna: **Calculadora dozenal desde
+base 10** (por defecto), **Calculadora dozenal** (la de siempre) e
+**Investigación**; no es un panel que reemplace la barra lateral. La pestaña
+activa se recuerda en `localStorage` (`dz.view`), igual que el alfabeto.
+Frontend vanilla TS + Vite en `app/src/`: `api.ts` (invoke tipado; todas las
+funciones llevan `face`), `simple.ts` (la cara de base 10), `keypad.ts` (teclado
+dozenal fijo + pad científico **generado desde el catálogo**), `glyphs.ts`
+(detecta si la fuente tiene ↊/↋ midiendo en un canvas; si no, cae a `X`/`E` solo
+en presentación), `history.ts`, `research.ts` (desglose + profundidad, tabla de
+tres backends, visor paso a paso con reproducción, botones de export), `main.ts`
+(la cara dozenal, la barra de pestañas y el arranque). El frontend nunca decide
+semántica dozenal: recibe strings ya formateados, y en el panel de investigación
+recibe además los pasos como `char` sueltos — no puede sumar dos `char`.
+
+`app/src/simple.ts` es la cara de base 10: teclado `0-9 . ( ) + − × ÷ C ⌫ =`, sin
+`↊`/`↋`, sin modos y sin backends, resultado dozenal en grande y al pie una línea
+`N puertas · ver` que lleva a Investigación. Dos cosas que **no** hay que
+"simplificar":
+
+- **El encadenado convierte de vuelta.** Tras un resultado, un operador siembra
+  la caja con `chain_operand(face)`, que devuelve el valor **en base 10** más su
+  propio `GateCount`. Sembrar el dozenal crudo sería un número equivocado en
+  silencio: `144+11` da `10↋`, y una caja que se lee como decimal continuaría
+  desde otra cosa. Es perezoso a propósito (se convierte al teclear el operador,
+  no al calcular), así que `chainOn` es asíncrono aquí y síncrono en `main.ts`.
+- **La caja rechaza `↊`/`↋`/`;`** en `keydown` y otra vez en `input` (que cubre
+  pegar). No es una copia de la regla de base 10 — es la promesa del teclado, que
+  no tiene esas teclas. Todo lo demás va a Rust para que lo juzgue él.
+
+Investigación mira la sesión **avanzada** para trazar y para guardar lo último
+exportable, pero `compare_backends` lleva `face`: si el usuario llegó por la
+línea de puertas de la cara simple, sus operandos hay que releerlos en base 10 o
+la comparación sería de otra cuenta. El desglose de «última operación» son los
+números que ya venían en esa `Response`; no se recalcula nada.
 
 `main.ts` guarda además el **encadenado sobre el resultado** (`docs/09`): tras
 un Enter o un `=` con éxito queda armada una oferta, y el primer carácter que
@@ -355,6 +418,10 @@ default.json`) y contra la que se registra la ruta elegida.
   en §5, lo que se implementó, en qué se desvió y lo que **no** se hizo
 - `docs/09-encadenado-de-resultado.md` — encadenar sobre el resultado tras un
   Enter y, en §5, lo que se implementó y en qué se desvió
+- `docs/10-entrada-base-10.md` — entrada en base 10 convertida con puertas, el
+  coste medido de las dos direcciones y, en §7 (núcleo y CLI) y §8 (las dos
+  calculadoras en paralelo de la GUI), lo que se implementó, en qué se desvió y
+  lo que **no** se hizo
 - `tools/lint-purity.ps1` — 4 reglas; la 4 detecta `*`/`%`/`/` nativos fuera de
   `backends/`, que es la clase de fallo que las otras tres no veían
 
@@ -472,6 +539,28 @@ desechable y se memoizan (a propósito: la medición del usuario no debe depende
 de si esta llamada fue la primera). Detalle en
 `docs/05-funciones-cientificas.md`.
 
+**Leer y escribir base 10 cuesta, y base 12 no** (backend MVL, modo fijo). Cada
+fila es el **mismo valor** en las dos bases, así que lo que gasta el evaluador se
+cancela y la diferencia es solo la lectura:
+
+| cifras | decimal / dozenal | leyendo base 10 | leyendo base 12 | **la lectura** | la vuelta |
+|--:|---|--:|--:|--:|--:|
+| 1 | `1` / `1` | 5.883 | 5.883 | **0** | 48 |
+| 2 | `12` / `10` | 12.276 | 10.492 | **1.784** | 11.485 |
+| 3 | `144` / `100` | 20.405 | 15.053 | **5.352** | 31.534 |
+| 4 | `1728` / `1000` | 30.924 | 19.614 | **11.310** | 69.355 |
+| 5 | `20736` / `10000` | 43.227 | 24.175 | **19.052** | 134.060 |
+| 6 | `248832` / `100000` | 57.920 | 28.736 | **29.184** | 201.590 |
+
+Base 12 es gratis **porque la representación es la base**: la posición en el
+`Vec` ya es el valor posicional. Una cifra decimal suelta también es gratis
+(`0`-`9` son el mismo símbolo, y Horner cortocircuita al multiplicar cero); el
+precio empieza en la segunda. La curva es superlineal porque el acumulador crece
+a cada paso. **La vuelta cuesta ~7× la ida** a igual número de cifras: la ida son
+multiplicaciones y la vuelta división restauradora, el circuito más caro del
+proyecto — el mismo hallazgo que domina `docs/05-funciones-cientificas.md`.
+Detalle en `docs/10-entrada-base-10.md`.
+
 ## Limitaciones conocidas (no son bugs por descubrir)
 
 - DFP sin subnormales ni cero con signo (`Dz` cero no tiene signo por construcción).
@@ -489,7 +578,21 @@ de si esta llamada fue la primera). Detalle en
   once. Por la misma razón `x` y `t` tampoco pueden ser nombres.
 - Dentro de una llamada la coma separa argumentos, así que ahí hay que escribir
   `10000` y no la forma agrupada `1,0000` (fuera de las llamadas sigue siendo el
-  separador de agrupación de siempre).
+  separador de agrupación de siempre). En base 10 vale lo mismo: `1,000,000`
+  funciona fuera de una llamada, dentro hay que escribir `1000000`.
+- La base de entrada es **solo de entrada**: `Response.display` siempre es
+  dozenal. Convertirlo de vuelta sin que nadie lo pida sería una segunda vía de
+  cálculo sin medir; para eso está `chain_operand`, que se llama a propósito y
+  reporta su propio coste.
+- La vuelta a base 10 en modo fijo emite una fracción exacta aunque el valor sí
+  tenga decimal finito (`0;6` sale como `6/12`, no como `0.5`). Detectar el caso
+  finito pediría factorizar el denominador; la fracción ya es exacta y válida
+  como expresión, y se prefirió una sola regla a dos.
+- La cara de base 10 de la GUI no tiene memoria (`M+`/`MR`/`MC`) ni teclado
+  científico ni el botón `10→12`: su teclado es el que se pidió (`0-9 .`,
+  operadores, `=`, `C`). La sesión sí tiene registro de memoria, para cuando se
+  pida. Escribir `sqrt(2)` en su caja funciona, pero nada en la interfaz lo
+  sugiere.
 - Las trascendentes son aproximaciones truncadas a la escala de trabajo y se
   marcan con `~`; en modo racional se muestran en punto fijo en vez de como una
   fracción de doce dígitos.

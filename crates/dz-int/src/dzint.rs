@@ -592,6 +592,95 @@ impl Dz {
     }
 }
 
+/// The dozenal integer ten, as a one-digit magnitude.
+///
+/// `Digit::new(10)` names a symbol with a literal; it is the same
+/// sanctioned move `div_rem_net` already makes when it builds a trial
+/// quotient digit from a loop counter. Nothing is *computed* from the 10.
+fn ten() -> Dz {
+    Dz::from_magnitude(false, vec![Digit::new(10).expect("ten is a dozenal digit")])
+}
+
+/// Build a `Dz` from digits that are meant in **base ten**, by Horner:
+/// `((d0 x ten + d1) x ten + d2) ...`, most significant digit first.
+///
+/// Every step is `Dz::mul` / `Dz::add`, so no native operator ever reaches
+/// a dozenal value, and the measured depth composes for free -- the level
+/// rides inside the `Dz`, which is why there is deliberately no `*_net`
+/// twin of this function.
+///
+/// **This is where base ten stops being free.** In base twelve a digit's
+/// position in the magnitude `Vec` *is* its weight, so accumulating a
+/// literal costs zero gates; in base ten no position means a power of ten,
+/// and every weight has to be multiplied out. That cost is the point of
+/// the experiment (`docs/10-entrada-base-10.md`).
+///
+/// Digits arrive already mapped to `Digit`, exactly as
+/// `DzFixed::from_digits` takes them: `dz-int` is Layer 1, and the
+/// character-to-symbol table lives in Layer 3 (`dz_parse::alphabet`). An
+/// empty slice is zero.
+pub fn from_base10_digits<G: DozGates>(g: &G, digits: &[Digit]) -> Dz {
+    let ten = ten();
+    let mut acc = Dz::zero();
+    for &d in digits {
+        let term = Dz::from_magnitude(false, vec![d]);
+        acc = acc.mul(g, &ten).add(g, &term);
+    }
+    acc
+}
+
+/// The inverse of [`from_base10_digits`]: the base-ten digits of `n`'s
+/// magnitude, most significant first, by repeated gate-composed division.
+///
+/// Horner run backwards. `Dz::div_rem` is the restoring divider, so this
+/// is the expensive direction -- reading a decimal costs multiplications,
+/// writing one costs divisions, and the divider is the priciest circuit in
+/// the project (`docs/05-funciones-cientificas.md`).
+///
+/// Each remainder is a value below ten, so its magnitude is exactly one
+/// digit and that digit's *symbol* is the decimal digit wanted: `0`-`9`
+/// mean the same symbol in both bases, which is why no tag is ever read.
+///
+/// Magnitude only; the sign is the caller's, exactly as
+/// `from_base10_digits` builds a non-negative value. Zero is `[0]`.
+pub fn to_base10_digits<G: DozGates>(g: &G, n: &Dz) -> Vec<Digit> {
+    let ten = ten();
+    let mut rest = Dz::from_magnitude(false, n.magnitude.clone()).at_level(n.level);
+    if rest.is_zero() {
+        return vec![Digit::ZERO];
+    }
+    let mut digits: Vec<Digit> = Vec::new();
+    while !rest.is_zero() {
+        let (quotient, remainder) = rest.div_rem(g, &ten).expect("ten is not zero");
+        digits.push(
+            *remainder
+                .magnitude
+                .first()
+                .expect("a magnitude always has a digit"),
+        );
+        rest = quotient;
+    }
+    // Division yields least significant first; text runs the other way.
+    digits.reverse();
+    digits
+}
+
+/// Ten to the `k`, for the denominator of a decimal fraction.
+///
+/// There is no free analogue of twelve-to-the-`k`, which is just pushing
+/// `k` zero digits onto a magnitude: ten to the `k` has to be multiplied
+/// out, one gate-composed `Dz::mul` per decimal place.
+pub fn pow10<G: DozGates>(g: &G, k: usize) -> Dz {
+    let ten = ten();
+    let mut acc = Dz::from_magnitude(false, vec![Digit::ONE]);
+    let mut i: usize = 0;
+    while i < k {
+        acc = acc.mul(g, &ten);
+        i += 1;
+    }
+    acc
+}
+
 /// Convert a small non-negative native `usize` into the `Dz` it denotes, by
 /// counting up from zero with `Dz::add` -- i.e. purely through gate-composed
 /// addition, never by computing a digit's tag from `k` via `%`/`/`. `k`

@@ -761,3 +761,44 @@ table.steps tr.pending td {
   border-color: var(--approx);
   color: var(--approx);
 }
+
+/* --- The base-ten face (docs/10, section 8) ------------------------- */
+
+/* Four columns, not six: this keypad has no dek, no el and no Humphrey
+   point, so the row is decimal-shaped. */
+.simple-keypad {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+/* The answer is the point of this face, so it is bigger than on the
+   dozenal one, where the expression carries as much weight. */
+.result.big {
+  font-size: 46px;
+}
+.result.big.error {
+  font-size: 18px;
+}
+
+/* The hook: a quiet line under the result saying what it cost, and the
+   way in to the research panel. Quiet on purpose -- it invites, it does
+   not interrupt. */
+.gate-line {
+  margin: 0.35rem 0 0;
+  text-align: right;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--approx);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.linkish:hover {
+  color: var(--ink);
+}

@@ -14,6 +14,7 @@ import {
   traceOperation,
   type BackendCost,
   type Comparison,
+  type Face,
   type Operation,
   type Trace,
   type TraceKind,
@@ -51,9 +52,12 @@ let currentSteps: TraceStep[] = [];
 let cursor = -1; // -1 = show everything
 
 export interface ResearchHooks {
-  /// The operation the calculator last evaluated, so "comparar backends"
-  /// re-runs exactly that instead of asking the user to retype it.
-  lastOperation: () => Operation | null;
+  /// The operation last evaluated, and by which of the two calculators,
+  /// so "comparar backends" re-runs exactly that instead of asking the
+  /// user to retype it. The face travels with the operation because the
+  /// operand *text* only means what it showed when it is re-read in the
+  /// input base of the face that produced it (`docs/10`).
+  lastOperation: () => { face: Face; op: Operation } | null;
   onError: (message: string) => void;
 }
 
@@ -325,7 +329,7 @@ export function initResearch(hooks: ResearchHooks): void {
     }
     element("compare-status").textContent = "Ejecutando los tres backends…";
     try {
-      renderComparison(await compareBackends(op));
+      renderComparison(await compareBackends(op.face, op.op));
     } catch (error) {
       element("compare-status").textContent = String(error);
     }

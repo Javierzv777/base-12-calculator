@@ -19,8 +19,8 @@
 use dz_api::{
     compare_backends, comparison_json_line, error_json_line, execute, functions, gate_count_csv,
     to_ascii, to_json_line, trace_csv, trace_json_line, trace_measured, trace_summary_csv,
-    ApiError, BackendComparison, BackendKind, DisplayAlphabet, GateCount, NumberMode, Operation,
-    Request, Response, Trace, TraceKind, TraceRequest,
+    ApiError, BackendComparison, BackendKind, DisplayAlphabet, GateCount, InputBase, NumberMode,
+    Operation, Request, Response, Trace, TraceKind, TraceRequest,
 };
 use std::io::{self, BufRead, Write};
 
@@ -147,6 +147,10 @@ struct Flags {
     /// The presentation alphabet for this invocation (`--alphabet ab`).
     /// Default: the canonical glyphs, i.e. exactly the old behaviour.
     alphabet: DisplayAlphabet,
+    /// Which base the typed operands are in (`--input-base 10`).
+    /// Default: twelve, i.e. exactly the old behaviour -- and free, which
+    /// base ten is not (`docs/10-entrada-base-10.md`).
+    input_base: InputBase,
 }
 
 impl Default for Flags {
@@ -160,6 +164,7 @@ impl Default for Flags {
             gates: false,
             csv: None,
             alphabet: DisplayAlphabet::canonical(),
+            input_base: InputBase::Twelve,
         }
     }
 }
@@ -206,6 +211,9 @@ fn print_usage() {
     println!("                              e.g. '--alphabet ab' (default: \u{218A}\u{218B});");
     println!("                              affects typed input and printed output only,");
     println!("                              never the CSV or the JSON");
+    println!("  --input-base 10|12          base of the operands you type (default: 12);");
+    println!("                              output is always dozenal. Base 10 is read");
+    println!("                              with gates, so '--gates' includes its cost");
     println!("  --gates                     also print the gate count of the call");
     println!("  --functions                 list the callable functions and constants");
     println!("  --csv[=<path>]              CSV instead of text: the step table of a");
@@ -261,7 +269,7 @@ fn split_arguments(args: &[String]) -> Result<(Vec<String>, Flags), String> {
                 "unicode" => flags.unicode = true,
                 "gates" => flags.gates = true,
                 "help" => return Err(String::new()),
-                "mode" | "backend" | "scale" | "alphabet" => {
+                "mode" | "backend" | "scale" | "alphabet" | "input-base" => {
                     i += 1;
                     if i >= args.len() {
                         return Err(format!("--{} needs a value", name));
@@ -277,6 +285,10 @@ fn split_arguments(args: &[String]) -> Result<(Vec<String>, Flags), String> {
                                 .ok_or(format!("unknown backend '{}'", value))?
                         }
                         "alphabet" => flags.alphabet = parse_alphabet(&value)?,
+                        "input-base" => {
+                            flags.input_base = InputBase::parse(&value)
+                                .ok_or(format!("unknown input base '{}' (use 10 or 12)", value))?
+                        }
                         _ => {
                             flags.scale = parse_count(&value)
                                 .ok_or(format!("--scale needs a small number, got '{}'", value))?
@@ -635,6 +647,7 @@ fn run_trace(kind: TraceKind, a: &str, b: &str, flags: &Flags) -> i32 {
         a: a.to_string(),
         b: b.to_string(),
         alphabet: flags.alphabet,
+        input_base: flags.input_base,
     };
     let (trace, count) = match trace_measured(&request) {
         Ok(pair) => pair,
@@ -674,7 +687,7 @@ fn run_compare(op: &Operation, flags: &Flags) -> i32 {
             return USAGE_EXIT;
         }
     }
-    let comparison = match compare_backends(op, flags.mode, flags.scale, flags.alphabet) {
+    let comparison = match compare_backends(op, flags.mode, flags.scale, flags.alphabet, flags.input_base) {
         Ok(comparison) => comparison,
         Err(error) => {
             if flags.json {
@@ -745,7 +758,8 @@ fn run_calc(operation: Operation, flags: &Flags) -> i32 {
         .with_mode(flags.mode)
         .with_backend(flags.backend)
         .with_scale(flags.scale)
-        .with_alphabet(flags.alphabet);
+        .with_alphabet(flags.alphabet)
+        .with_input_base(flags.input_base);
     match execute(&request) {
         Ok(response) => {
             if flags.json {
@@ -806,6 +820,8 @@ struct Session {
     history: Vec<(String, String)>,
     /// The presentation alphabet, switchable with `:alphabet`.
     alphabet: DisplayAlphabet,
+    /// The base typed operands are in, switchable with `:inputbase`.
+    input_base: InputBase,
 }
 
 fn print_repl_help() {
@@ -818,6 +834,8 @@ fn print_repl_help() {
     println!("            :scale <n>   :gates   :funcs   :help   :quit");
     println!("            :alphabet <XY> (presentation symbols for ten and eleven,");
     println!("                            e.g. ':alphabet ab'; ':alphabet' shows it)");
+    println!("            :inputbase 10|12 (base of what you type; output stays");
+    println!("                            dozenal, and base 10 costs gates to read)");
     println!("  Session:  :mem (recall)  :mem+ (store last result)  :memc (clear)");
     println!("            :history   :clear   :session");
     println!("  Research: run 'dz-cli trace add EEE 1' or 'dz-cli compare mul 25 34'");
@@ -832,6 +850,7 @@ fn run_repl() {
         memory: None,
         history: Vec::new(),
         alphabet: DisplayAlphabet::canonical(),
+        input_base: InputBase::Twelve,
     };
     let stdin = io::stdin();
     println!("dz-cli -- dozenal calculator. Default mode: rational. Type :help for usage, :quit to exit.");
@@ -932,6 +951,7 @@ fn run_repl() {
                 session.alphabet.ten(),
                 session.alphabet.eleven()
             );
+            println!("input base = {}", session.input_base.label());
             println!("history = {} entries", session.history.len());
             continue;
         }
@@ -958,6 +978,28 @@ fn run_repl() {
                     );
                 }
                 Err(message) => println!("error: {}", message),
+            }
+            continue;
+        }
+        // The input base (`docs/10`). Unlike `:alphabet` this does not
+        // repaint anything: it changes how the *next* line is read, and
+        // results already in the history were read in whatever base was in
+        // force at the time. Output is dozenal either way.
+        if line == ":inputbase" {
+            println!(
+                "input base = {}{}",
+                session.input_base.label(),
+                if session.input_base.is_dozenal() { " (default, free)" } else { " (costs gates to read)" }
+            );
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix(":inputbase ") {
+            match InputBase::parse(rest.trim()) {
+                Some(base) => {
+                    session.input_base = base;
+                    println!("input base = {}", base.label());
+                }
+                None => println!("unknown input base '{}' (use 10 or 12)", rest.trim()),
             }
             continue;
         }
@@ -996,7 +1038,8 @@ fn run_repl() {
             .with_backend(session.backend)
             .with_mode(session.mode)
             .with_scale(session.scale)
-            .with_alphabet(session.alphabet);
+            .with_alphabet(session.alphabet)
+            .with_input_base(session.input_base);
         match execute(&request) {
             Ok(response) => {
                 // The interactive REPL keeps the canonical glyphs: the user

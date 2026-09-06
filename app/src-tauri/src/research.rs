@@ -6,7 +6,7 @@
 //! never recomputes.
 
 use crate::commands::{gate_count_dto, GateCountDto, OperationDto};
-use crate::state::AppState;
+use crate::state::{AppState, Face};
 use dz_api::{BackendCost, DisplayAlphabet, Trace, TraceKind, TraceRequest};
 use serde::Serialize;
 use tauri::State;
@@ -192,6 +192,10 @@ fn cost_dtos(costs: &[BackendCost]) -> Vec<BackendCostDto> {
 /// digit positions, not over how a final value is rendered. It does honour
 /// the session's backend, since "which backend am I watching" is exactly
 /// the question the panel exists to ask.
+///
+/// The trace form belongs to the research view, which is the advanced
+/// session's: `A` and `B` are typed there, in the advanced face's input
+/// base and alphabet, so that is the session read here.
 #[tauri::command]
 pub fn trace_operation(
     state: State<AppState>,
@@ -200,15 +204,23 @@ pub fn trace_operation(
     b: String,
 ) -> Result<TraceDto, String> {
     let kind = TraceKind::parse(&kind).ok_or(format!("unknown trace kind '{}'", kind))?;
-    let (backend, alphabet) = {
-        let session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
-        (session.backend, session.alphabet)
+    let (backend, alphabet, input_base) = {
+        let sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+        let session = sessions.get(Face::Advanced);
+        (session.backend, session.alphabet, session.input_base)
     };
-    let trace = dz_api::trace(&TraceRequest { backend, kind, a, b, alphabet })
-        .map_err(|e| e.to_string())?;
+    let trace = dz_api::trace(&TraceRequest {
+        backend,
+        kind,
+        a,
+        b,
+        alphabet,
+        input_base,
+    })
+    .map_err(|e| e.to_string())?;
     let dto = TraceDto::from_trace(&alphabet, &trace);
-    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
-    session.last_trace = Some(trace);
+    let mut sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    sessions.get_mut(Face::Advanced).last_trace = Some(trace);
     Ok(dto)
 }
 
@@ -216,14 +228,32 @@ pub fn trace_operation(
 ///
 /// On demand, never on every keystroke: two thirds of that work is thrown
 /// away whenever the user only wanted the answer.
+///
+/// `face` says whose operation this is. The panel lives next to the
+/// advanced calculator, but the user can also arrive from the simple
+/// face's gate line, and `144 + 11` only means what it showed there if it
+/// is re-read in that face's input base. Reading the settings from the
+/// face that produced the operation is what keeps the comparison about
+/// the same calculation.
 #[tauri::command]
-pub fn compare_backends(state: State<AppState>, op: OperationDto) -> Result<ComparisonDto, String> {
-    let (mode, scale, alphabet) = {
-        let session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
-        (session.mode, session.scale, session.alphabet)
+pub fn compare_backends(
+    state: State<AppState>,
+    face: Face,
+    op: OperationDto,
+) -> Result<ComparisonDto, String> {
+    let (mode, scale, alphabet, input_base) = {
+        let sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+        let session = sessions.get(face);
+        (
+            session.mode,
+            session.scale,
+            session.alphabet,
+            session.input_base,
+        )
     };
-    let comparison = dz_api::compare_backends(&op.into_operation(), mode, scale, alphabet)
-        .map_err(|e| e.to_string())?;
+    let comparison =
+        dz_api::compare_backends(&op.into_operation(), mode, scale, alphabet, input_base)
+            .map_err(|e| e.to_string())?;
     let dto = ComparisonDto {
         display: alphabet.from_canonical(&comparison.display),
         costs: cost_dtos(&comparison.costs),
@@ -234,8 +264,11 @@ pub fn compare_backends(state: State<AppState>, op: OperationDto) -> Result<Comp
             summary: v.summary.clone(),
         }),
     };
-    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
-    session.last_comparison = Some(comparison.costs);
+    // The panel is one place with one pair of export buttons, so what it
+    // last produced is stored in one place -- the advanced session, which
+    // is the panel's own -- whichever face the operation came from.
+    let mut sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    sessions.get_mut(Face::Advanced).last_comparison = Some(comparison.costs);
     Ok(dto)
 }
 
@@ -259,7 +292,9 @@ pub fn export_csv(
     path: String,
 ) -> Result<String, String> {
     let csv = {
-        let session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+        let sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+        // The panel's own session -- see `compare_backends`.
+        let session = sessions.get(Face::Advanced);
         match what.as_str() {
             "gates" => {
                 let costs = session

@@ -772,6 +772,7 @@ name = "dz-parse"
 version = "0.1.0"
 dependencies = [
  "dz-gates",
+ "dz-int",
  "dz-num",
 ]
 

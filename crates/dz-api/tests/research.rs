@@ -1,6 +1,7 @@
 //! Phase 7: the research-panel surface of `dz-api`.
 
 use dz_api::{
+    InputBase,
     compare_backends, comparison_json_line, execute, gate_count_csv, trace, trace_csv,
     trace_json_line, trace_summary_csv, ApiError, BackendKind, NumberMode, Operation, Request,
     DisplayAlphabet, Trace, TraceKind, TraceRequest,
@@ -13,6 +14,7 @@ fn request(kind: TraceKind, a: &str, b: &str) -> TraceRequest {
         a: a.to_string(),
         b: b.to_string(),
         alphabet: DisplayAlphabet::canonical(),
+        input_base: InputBase::Twelve,
     }
 }
 
@@ -214,6 +216,7 @@ fn comparing_backends_runs_all_three_and_agrees_on_the_answer() {
         NumberMode::Fixed,
         dz_api::default_scale(),
         DisplayAlphabet::canonical(),
+        InputBase::Twelve,
     )
     .expect("compares");
     assert_eq!(comparison.display, "11;6");
@@ -232,6 +235,7 @@ fn the_gate_csv_has_a_header_and_one_row_per_backend() {
         NumberMode::Fixed,
         dz_api::default_scale(),
         DisplayAlphabet::canonical(),
+        InputBase::Twelve,
     )
     .expect("compares");
     let csv = gate_count_csv(&comparison.costs);
@@ -268,7 +272,7 @@ fn only_crt_reports_reconstructions() {
         Operation::Sum { a: "1".into(), b: "1".into() },
     ] {
         let comparison =
-            compare_backends(&op, NumberMode::Fixed, dz_api::default_scale(), DisplayAlphabet::canonical()).expect("compares");
+            compare_backends(&op, NumberMode::Fixed, dz_api::default_scale(), DisplayAlphabet::canonical(), InputBase::Twelve).expect("compares");
         for row in &comparison.costs {
             match row.backend {
                 BackendKind::Crt => assert!(
@@ -291,7 +295,7 @@ fn a_plain_response_carries_the_same_reconstruction_count() {
     // they are the same measurement taken through two entry points.
     let op = Operation::Mul { a: "25".into(), b: "34".into() };
     let comparison =
-        compare_backends(&op, NumberMode::Fixed, dz_api::default_scale(), DisplayAlphabet::canonical()).expect("compares");
+        compare_backends(&op, NumberMode::Fixed, dz_api::default_scale(), DisplayAlphabet::canonical(), InputBase::Twelve).expect("compares");
     for backend in BackendKind::ALL {
         let response = execute(
             &dz_api::Request::new(op.clone())
@@ -315,7 +319,7 @@ fn the_verdict_names_mvl_and_says_the_tie_was_broken_by_reconstructions() {
         Operation::Sum { a: "1".into(), b: "1".into() },
     ] {
         let comparison =
-            compare_backends(&op, NumberMode::Fixed, dz_api::default_scale(), DisplayAlphabet::canonical()).expect("compares");
+            compare_backends(&op, NumberMode::Fixed, dz_api::default_scale(), DisplayAlphabet::canonical(), InputBase::Twelve).expect("compares");
         let verdict = comparison.verdict.as_ref().expect("a verdict is written");
         // Consistent with docs/02: CRT never wins for these circuits.
         assert_eq!(verdict.winner, BackendKind::Mvl);
@@ -344,6 +348,7 @@ fn the_verdict_never_names_the_oracle() {
         NumberMode::Fixed,
         dz_api::default_scale(),
         DisplayAlphabet::canonical(),
+        InputBase::Twelve,
     )
     .expect("compares");
     let mut costs = comparison.costs.clone();
@@ -435,6 +440,7 @@ fn the_comparison_json_labels_the_oracle() {
         NumberMode::Fixed,
         dz_api::default_scale(),
         DisplayAlphabet::canonical(),
+        InputBase::Twelve,
     )
     .expect("compares");
     let line = comparison_json_line(&comparison);

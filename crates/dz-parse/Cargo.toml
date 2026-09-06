@@ -6,6 +6,7 @@ authors.workspace = true
 
 [dependencies]
 dz-gates = { path = "../dz-gates" }
+dz-int = { path = "../dz-int" }
 dz-num = { path = "../dz-num" }
 
 [dev-dependencies]

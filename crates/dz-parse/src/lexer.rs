@@ -94,16 +94,43 @@ pub(crate) fn is_identifier_run(chars: &[char], i: usize, len: usize) -> bool {
     is_identifier_run_with(chars, i, len, |c| char_to_digit(c).is_some())
 }
 
+/// One entry per open parenthesis: true if it opened a function call's
+/// argument list. This is the rule that decides what a comma means --
+/// argument separator inside a call, cosmetic four-digit grouping outside
+/// one -- and it is positional, not a heuristic.
+///
+/// `pub(crate)` for the same reason [`letter_run`] is: `input_base` has to
+/// answer the very same question about a base-ten literal (does this comma
+/// end the number, or group its digits?), and a second copy of the rule
+/// would drift away from this one.
+#[derive(Default)]
+pub(crate) struct CallParens {
+    kinds: Vec<bool>,
+}
+
+impl CallParens {
+    pub(crate) fn open(&mut self, opens_call: bool) {
+        self.kinds.push(opens_call);
+    }
+
+    pub(crate) fn close(&mut self) {
+        self.kinds.pop();
+    }
+
+    /// Whether the innermost open parenthesis is a call's argument list.
+    pub(crate) fn in_call(&self) -> bool {
+        *self.kinds.last().unwrap_or(&false)
+    }
+}
+
 pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
     let chars: Vec<char> = input.chars().collect();
     let mut tokens = Vec::new();
-    // One entry per open parenthesis: true if it opened a function call's
-    // argument list (i.e. the previous token was an identifier).
-    let mut paren_kinds: Vec<bool> = Vec::new();
+    let mut paren_kinds = CallParens::default();
     let mut i: usize = 0;
     while i < chars.len() {
         let c = chars[i];
-        let in_call = *paren_kinds.last().unwrap_or(&false);
+        let in_call = paren_kinds.in_call();
         if c.is_whitespace() {
             i += 1;
             continue;
@@ -193,11 +220,11 @@ pub fn lex(input: &str) -> Result<Vec<Token>, LexError> {
             '^' => Token::Caret,
             '(' => {
                 let opens_call = matches!(tokens.last(), Some(Token::Ident(_)));
-                paren_kinds.push(opens_call);
+                paren_kinds.open(opens_call);
                 Token::LParen
             }
             ')' => {
-                paren_kinds.pop();
+                paren_kinds.close();
                 Token::RParen
             }
             other => {

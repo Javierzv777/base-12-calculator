@@ -12,6 +12,8 @@ import {
   setMode,
   setScale,
   type CalcResponse,
+  type Face,
+  type GateCount,
   type Operation,
   type Session,
 } from "./api";
@@ -23,6 +25,7 @@ import { display, initGlyphMode } from "./glyphs";
 import { renderHistory } from "./history";
 import { renderKeypad, renderScientificPad } from "./keypad";
 import { initResearch, paintResearchGates } from "./research";
+import { initSimpleFace, repaintSimpleFace } from "./simple";
 
 function element<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -43,11 +46,20 @@ const scaleInput = element<HTMLInputElement>("scale");
 const memoryValue = element<HTMLSpanElement>("memory-value");
 const historyList = element<HTMLUListElement>("history-list");
 
+/// Everything in THIS file drives the dozenal calculator, which is the
+/// advanced session. The simple face is `simple.ts` and talks to its own
+/// session; the two only meet in `boot`, where the tabs and the research
+/// panel are wired.
+const FACE: Face = "advanced";
+
 let session: Session | null = null;
 let lastResult = "";
-// The last thing actually evaluated, kept so the research panel can re-run
-// it against the three backends without asking the user to retype it.
-let lastOperation: Operation | null = null;
+// The last thing actually evaluated by EITHER calculator, with the face
+// that did it, kept so the research panel can re-run it against the three
+// backends without asking the user to retype it. The face has to travel
+// with it: `144 + 11` is a different calculation depending on which base
+// its operands are read in (`docs/10`).
+let lastOperation: { face: Face; op: Operation } | null = null;
 let lastLabel = "";
 // Paints the alphabet dialog and the sidebar button from a session.
 // Assigned in `boot`; the modal owns its own DOM.
@@ -100,6 +112,26 @@ function paintGates(response: CalcResponse | null): void {
   // The research view shows the same numbers with more room around them.
   // One painter, two destinations -- the two tables cannot drift.
   paintResearchGates(counts, response?.depth ?? null, lastLabel);
+}
+
+/**
+ * The simple face's report of a calculation it just made.
+ *
+ * The research panel is shared, so the breakdown it shows is whichever
+ * calculator answered last -- exactly the numbers that came back in that
+ * face's own `Response`, never recomputed here. The advanced sidebar is
+ * NOT repainted: it is the advanced calculator's own cost readout, and
+ * the two histories do not mix either.
+ */
+function reportSimpleCalculation(
+  op: Operation,
+  label: string,
+  counts: GateCount | null,
+  depth: number | null,
+): void {
+  lastOperation = { face: "simple", op };
+  lastLabel = label;
+  paintResearchGates(counts, depth, label);
 }
 
 function paintNotes(response: CalcResponse): void {
@@ -255,16 +287,16 @@ async function evaluate(): Promise<void> {
   }
   const operation: Operation = { kind: "eval", expr: source };
   try {
-    const response = await calc(operation);
+    const response = await calc(FACE, operation);
     result.classList.remove("error");
     const shown = display(response.display);
     result.textContent = shown;
     lastResult = response.display;
-    lastOperation = operation;
+    lastOperation = { face: FACE, op: operation };
     lastLabel = source;
     paintNotes(response);
     paintGates(response);
-    paintSession(await getSession());
+    paintSession(await getSession(FACE));
     // Last, once nothing else can still write to the box: the offer is
     // anchored to the value standing there right now.
     armChain(shown);
@@ -329,12 +361,37 @@ function wireKeys(container: HTMLElement): void {
   });
 }
 
-/// Two top-level views the user alternates between, not a panel that
-/// swaps the calculator's sidebar: the research widgets need the whole
-/// width (a three-backend table, and a step viewer that lists a dozen
-/// digit positions side by side). "Calculadora" is the default.
-function showView(name: string): void {
-  for (const view of ["calculator", "research"]) {
+/// Three top-level views, not a panel that swaps a sidebar.
+///
+/// Two of them are whole calculators standing side by side -- the base-ten
+/// front and the dozenal one -- each with its own session in Rust, so
+/// switching tabs is navigation and never a reset: a half-typed
+/// expression, a result, a history and a memory register all stay where
+/// they were. The third is the research view, whose widgets need the full
+/// width. "simple" is the default, because it is the one that needs no
+/// dozenal knowledge to use.
+const VIEWS = ["simple", "calculator", "research"] as const;
+type ViewName = (typeof VIEWS)[number];
+
+/// Remembered on this machine, like the alphabet (`alphabet.ts`): reopening
+/// the app should not drop the user back on a face they were not using.
+const VIEW_STORAGE_KEY = "dz.view";
+
+function storedView(): ViewName {
+  try {
+    const raw = window.localStorage.getItem(VIEW_STORAGE_KEY);
+    if (raw !== null && (VIEWS as readonly string[]).includes(raw)) {
+      return raw as ViewName;
+    }
+  } catch {
+    // An unavailable store is not worth an error: the default view is
+    // always a correct answer.
+  }
+  return "simple";
+}
+
+function showView(name: ViewName, remember = true): void {
+  for (const view of VIEWS) {
     const active = view === name;
     element(`view-${view}`).classList.toggle("hidden", !active);
     const tab = element(`tab-${view}`);
@@ -343,6 +400,14 @@ function showView(name: string): void {
   }
   if (name === "calculator") {
     expression.focus();
+  }
+  if (remember) {
+    try {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, name);
+    } catch {
+      // Persisting is a convenience; failing to persist must not break
+      // the running session.
+    }
   }
 }
 
@@ -620,6 +685,11 @@ async function boot(): Promise<void> {
         lastResult = last.display;
       }
     },
+    // The alphabet is one visual preference for one screen, so the other
+    // calculator repaints with it too (see `AlphabetHooks`).
+    onOtherFace: () => {
+      void repaintSimpleFace();
+    },
   });
   renderScientificPad(science, await listFunctions());
   wireKeys(keypad);
@@ -628,16 +698,24 @@ async function boot(): Promise<void> {
   // A stored preference is re-validated by Rust before it is applied; a
   // pair the current catalog no longer allows is dropped silently and
   // the session stays canonical.
-  paintSession((await restoreStoredAlphabet()) ?? (await getSession()));
+  paintSession((await restoreStoredAlphabet()) ?? (await getSession(FACE)));
   paintGates(null);
 
-  for (const view of ["calculator", "research"]) {
+  for (const view of VIEWS) {
     element(`tab-${view}`).addEventListener("click", () => showView(view));
   }
   initResearch({
     lastOperation: () => lastOperation,
     onError: showError,
   });
+  await initSimpleFace({
+    onCalculation: reportSimpleCalculation,
+    // The gate line at the foot of the simple face is the hook of the
+    // design (`docs/10` section 8.3): it is what turns "the answer is
+    // 10↋" into "what did that cost?".
+    onShowResearch: () => showView("research"),
+  });
+  showView(storedView());
 
   expression.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -660,10 +738,10 @@ async function boot(): Promise<void> {
   expression.addEventListener("input", disarmChain);
 
   modeSelect.addEventListener("change", async () => {
-    paintSession(await setMode(modeSelect.value));
+    paintSession(await setMode(FACE, modeSelect.value));
   });
   backendSelect.addEventListener("change", async () => {
-    paintSession(await setBackend(backendSelect.value));
+    paintSession(await setBackend(FACE, backendSelect.value));
   });
   scaleInput.addEventListener("change", async () => {
     const digits = Number.parseInt(scaleInput.value, 10);
@@ -671,7 +749,7 @@ async function boot(): Promise<void> {
       return;
     }
     try {
-      paintSession(await setScale(digits));
+      paintSession(await setScale(FACE, digits));
     } catch (error) {
       showError(String(error));
       if (session) {
@@ -684,7 +762,7 @@ async function boot(): Promise<void> {
     if (lastResult.length > 0) {
       // No argument: Rust stores its own canonical copy of the last
       // result, so the register repaints when the alphabet changes.
-      paintSession(await memoryStore());
+      paintSession(await memoryStore(FACE));
     }
   });
   element("mem-recall").addEventListener("click", () => {
@@ -693,15 +771,20 @@ async function boot(): Promise<void> {
     }
   });
   element("mem-clear").addEventListener("click", async () => {
-    paintSession(await memoryClear());
+    paintSession(await memoryClear(FACE));
   });
   element("history-clear").addEventListener("click", async () => {
-    paintSession(await clearHistory());
+    paintSession(await clearHistory(FACE));
   });
 
   initBase10Tool();
 
-  expression.focus();
+  // Focus goes to the view that is actually showing. `showView` already
+  // did it when that is the dozenal calculator; stealing it here would
+  // put the caret in a hidden box.
+  if (storedView() === "calculator") {
+    expression.focus();
+  }
 }
 
 void boot();

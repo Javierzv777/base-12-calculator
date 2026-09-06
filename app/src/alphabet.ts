@@ -68,6 +68,29 @@ function element<T extends HTMLElement>(id: string): T {
 export interface AlphabetHooks {
   /** Repaint everything that shows dozenal text with the new session. */
   onSession: (session: Session) => void;
+  /**
+   * Repaint the other calculator too.
+   *
+   * The alphabet is a per-machine *visual* preference, not a per-face
+   * setting: the two faces are separate calculators but they are drawn on
+   * one screen, and letting them spell eleven two different ways would be
+   * a difference the user never asked for. So the pair is applied to both
+   * sessions and only the advanced one comes back here; the simple face
+   * repaints itself through this hook. It is still not a control on the
+   * simple face -- the dialog lives on the advanced one.
+   */
+  onOtherFace: () => void;
+}
+
+/**
+ * Apply a pair to both sessions and return the advanced one.
+ *
+ * Rust validates it once per face; a pair it rejects is rejected for
+ * both, so the two can never end up spelling numbers differently.
+ */
+async function setBothAlphabets(ten: string, eleven: string): Promise<Session> {
+  await setAlphabet("simple", ten, eleven);
+  return setAlphabet("advanced", ten, eleven);
 }
 
 /**
@@ -84,7 +107,7 @@ export async function restoreStoredAlphabet(): Promise<Session | null> {
     return null;
   }
   try {
-    return await setAlphabet(stored.ten, stored.eleven);
+    return await setBothAlphabets(stored.ten, stored.eleven);
   } catch {
     writeStored(null);
     return null;
@@ -148,7 +171,7 @@ export function initAlphabetModal(hooks: AlphabetHooks): (session: Session) => v
       return;
     }
     try {
-      const session = await setAlphabet(next.ten, next.eleven);
+      const session = await setBothAlphabets(next.ten, next.eleven);
       // Only persist a pair Rust accepted, so a stored preference is
       // always one that at least once was valid.
       writeStored(
@@ -156,6 +179,7 @@ export function initAlphabetModal(hooks: AlphabetHooks): (session: Session) => v
       );
       sync(session);
       hooks.onSession(session);
+      hooks.onOtherFace();
       modal.close();
     } catch (rejected) {
       // Verbatim: the sentence Rust wrote names the rule that failed and,
@@ -179,10 +203,12 @@ export function initAlphabetModal(hooks: AlphabetHooks): (session: Session) => v
   });
 
   element("alphabet-reset").addEventListener("click", async () => {
-    const session = await resetAlphabet();
+    await resetAlphabet("simple");
+    const session = await resetAlphabet("advanced");
     writeStored(null);
     sync(session);
     hooks.onSession(session);
+    hooks.onOtherFace();
     setError("");
   });
 

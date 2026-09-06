@@ -59,6 +59,10 @@ export interface Session {
   /// back is translated by Rust on arrival (`docs/07`).
   alphabet_ten: string;
   alphabet_eleven: string;
+  /// The base this face reads typed numbers in: `"12"` or `"10"`
+  /// (`docs/10`). Shown and used to pick a keypad; never used to convert
+  /// anything here.
+  input_base: string;
 }
 
 export interface FunctionInfo {
@@ -70,32 +74,62 @@ export interface FunctionInfo {
   always_exact: boolean;
 }
 
-export const calc = (op: Operation): Promise<CalcResponse> => invoke("calc", { op });
+/// Which of the two calculators a call is about.
+///
+/// They are two calculators side by side, each with its own input,
+/// result, history, memory and settings, and all of that state lives in
+/// Rust (`src-tauri/src/state.rs`). This string is the only thing the
+/// frontend has to remember about the split.
+export type Face = "simple" | "advanced";
 
-export const getSession = (): Promise<Session> => invoke("get_session");
+/// The chain-back conversion (`docs/10` section 3): the last result
+/// rewritten into this face's input base, plus what that cost.
+export interface ChainOperand {
+  text: string;
+  gate_count: GateCount;
+}
 
-export const setBackend = (backend: string): Promise<Session> =>
-  invoke("set_backend", { backend });
+export const calc = (face: Face, op: Operation): Promise<CalcResponse> =>
+  invoke("calc", { face, op });
 
-export const setMode = (mode: string): Promise<Session> => invoke("set_mode", { mode });
+export const getSession = (face: Face): Promise<Session> => invoke("get_session", { face });
 
-export const setScale = (scale: number): Promise<Session> => invoke("set_scale", { scale });
+export const setBackend = (face: Face, backend: string): Promise<Session> =>
+  invoke("set_backend", { face, backend });
 
-export const clearHistory = (): Promise<Session> => invoke("clear_history");
+export const setMode = (face: Face, mode: string): Promise<Session> =>
+  invoke("set_mode", { face, mode });
 
-/// Stores the last result. It takes no argument because the canonical
+export const setScale = (face: Face, scale: number): Promise<Session> =>
+  invoke("set_scale", { face, scale });
+
+export const setInputBase = (face: Face, base: string): Promise<Session> =>
+  invoke("set_input_base", { face, base });
+
+export const clearHistory = (face: Face): Promise<Session> =>
+  invoke("clear_history", { face });
+
+/// The last result, converted back into the face's input base so it can
+/// be typed on again. It takes no value for the same reason `memoryStore`
+/// does not: the canonical copy lives in Rust, and the conversion is gate
+/// work that only Rust may do.
+export const chainOperand = (face: Face): Promise<ChainOperand> =>
+  invoke("chain_operand", { face });
+
+/// Stores the last result. It takes no value because the canonical
 /// text lives on the Rust side; sending the on-screen string back would
 /// freeze the register in whatever alphabet was showing.
-export const memoryStore = (): Promise<Session> => invoke("memory_store");
+export const memoryStore = (face: Face): Promise<Session> => invoke("memory_store", { face });
 
-export const memoryClear = (): Promise<Session> => invoke("memory_clear");
+export const memoryClear = (face: Face): Promise<Session> => invoke("memory_clear", { face });
 
 /// Set the symbols for ten and eleven. Rejected pairs come back as the
 /// rejection Rust wrote, which the modal shows verbatim.
-export const setAlphabet = (ten: string, eleven: string): Promise<Session> =>
-  invoke("set_alphabet", { ten, eleven });
+export const setAlphabet = (face: Face, ten: string, eleven: string): Promise<Session> =>
+  invoke("set_alphabet", { face, ten, eleven });
 
-export const resetAlphabet = (): Promise<Session> => invoke("reset_alphabet");
+export const resetAlphabet = (face: Face): Promise<Session> =>
+  invoke("reset_alphabet", { face });
 
 export const listFunctions = (): Promise<FunctionInfo[]> => invoke("list_functions");
 
@@ -173,8 +207,10 @@ export interface Comparison {
 export const traceOperation = (kind: TraceKind, a: string, b: string): Promise<Trace> =>
   invoke("trace_operation", { kind, a, b });
 
-export const compareBackends = (op: Operation): Promise<Comparison> =>
-  invoke("compare_backends", { op });
+/// `face` says whose operation this is, so the three runs re-read the
+/// operand text in the same input base the face that produced it did.
+export const compareBackends = (face: Face, op: Operation): Promise<Comparison> =>
+  invoke("compare_backends", { face, op });
 
 /// Rust builds the CSV and writes it; this only hands over the path the
 /// user picked in the native dialog.

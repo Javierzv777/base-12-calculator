@@ -9,7 +9,7 @@
 //! `serde` appears here and nowhere below: the DTOs are this crate's, not
 //! `dz-api`'s.
 
-use crate::state::{AppState, HistoryEntry};
+use crate::state::{AppState, Face, HistoryEntry};
 use dz_api::{BackendKind, DisplayAlphabet, NumberMode, Operation, Request};
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -104,6 +104,19 @@ pub struct SessionDto {
     /// it receives is already translated here.
     pub alphabet_ten: String,
     pub alphabet_eleven: String,
+    /// The base this face reads typed numbers in, as the same flag value
+    /// `dz-cli` uses: `"12"` or `"10"` (`docs/10` section 6). The frontend
+    /// shows it and, on the simple face, uses it to decide that the
+    /// keypad has no `↊`/`↋` -- it never converts with it.
+    pub input_base: String,
+}
+
+/// The chain-back conversion: the text to seed the input box with, and
+/// what producing it cost.
+#[derive(Debug, Serialize)]
+pub struct ChainDto {
+    pub text: String,
+    pub gate_count: GateCountDto,
 }
 
 #[derive(Debug, Serialize)]
@@ -148,15 +161,27 @@ fn session_dto(session: &crate::state::Session) -> SessionDto {
         modes: NumberMode::ALL.iter().map(|m| m.label().to_string()).collect(),
         alphabet_ten: alphabet.ten().to_string(),
         alphabet_eleven: alphabet.eleven().to_string(),
+        input_base: session.input_base.label().to_string(),
     }
 }
 
-/// Evaluate one operation with the session's current settings.
+/// Evaluate one operation with the settings of `face`'s session.
 #[tauri::command]
-pub fn calc(state: State<AppState>, op: OperationDto) -> Result<ResponseDto, String> {
-    let (backend, mode, scale, alphabet) = {
-        let session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
-        (session.backend, session.mode, session.scale, session.alphabet)
+pub fn calc(
+    state: State<AppState>,
+    face: Face,
+    op: OperationDto,
+) -> Result<ResponseDto, String> {
+    let (backend, mode, scale, alphabet, input_base) = {
+        let sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+        let session = sessions.get(face);
+        (
+            session.backend,
+            session.mode,
+            session.scale,
+            session.alphabet,
+            session.input_base,
+        )
     };
 
     let label = op.label();
@@ -164,15 +189,16 @@ pub fn calc(state: State<AppState>, op: OperationDto) -> Result<ResponseDto, Str
         .with_backend(backend)
         .with_mode(mode)
         .with_scale(scale)
-        .with_alphabet(alphabet);
+        .with_alphabet(alphabet)
+        .with_input_base(input_base);
 
     // The error is already structured on the Rust side; it crosses the
     // bridge as its display text because that is all a dialog needs.
     let response = dz_api::execute(&request).map_err(|e| e.to_string())?;
 
     {
-        let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
-        session.push_history(HistoryEntry {
+        let mut sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+        sessions.get_mut(face).push_history(HistoryEntry {
             input: label,
             display: response.display.clone(),
             approximate: response.approximate,
@@ -197,44 +223,104 @@ pub fn calc(state: State<AppState>, op: OperationDto) -> Result<ResponseDto, Str
 /// Hot backend switch -- already what the Phase 7 research panel needs,
 /// so that phase adds a chart, not a command.
 #[tauri::command]
-pub fn set_backend(state: State<AppState>, backend: String) -> Result<SessionDto, String> {
+pub fn set_backend(
+    state: State<AppState>,
+    face: Face,
+    backend: String,
+) -> Result<SessionDto, String> {
     let kind = BackendKind::parse(&backend).ok_or(format!("unknown backend '{}'", backend))?;
-    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let mut sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let session = sessions.get_mut(face);
     session.backend = kind;
-    Ok(session_dto(&session))
+    Ok(session_dto(session))
 }
 
 #[tauri::command]
-pub fn set_mode(state: State<AppState>, mode: String) -> Result<SessionDto, String> {
+pub fn set_mode(state: State<AppState>, face: Face, mode: String) -> Result<SessionDto, String> {
     let kind = NumberMode::parse(&mode).ok_or(format!("unknown mode '{}'", mode))?;
-    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let mut sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let session = sessions.get_mut(face);
     session.mode = kind;
-    Ok(session_dto(&session))
+    Ok(session_dto(session))
+}
+
+/// Set the base this face reads typed numbers in (`docs/10`).
+///
+/// Only the advanced face offers it: the simple one is pinned to ten, and
+/// its UI has no control for this. It is an *input* setting -- what comes
+/// back is dozenal either way -- so, like `:inputbase` in the REPL, it
+/// repaints nothing: it changes how the next line is read.
+#[tauri::command]
+pub fn set_input_base(
+    state: State<AppState>,
+    face: Face,
+    base: String,
+) -> Result<SessionDto, String> {
+    let kind = dz_api::InputBase::parse(&base).ok_or(format!("unknown input base '{}'", base))?;
+    let mut sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let session = sessions.get_mut(face);
+    session.input_base = kind;
+    Ok(session_dto(session))
+}
+
+/// The result of the last calculation, rewritten into this face's input
+/// base, for result chaining (`docs/09`, `docs/10` section 3).
+///
+/// It takes no value, for the same reason `memory_store` does not: the
+/// canonical copy lives here, and letting the frontend pass the on-screen
+/// string back would hand this whatever alphabet was showing.
+///
+/// On the base-ten face this is what stops a silent wrong answer. `144 +
+/// 11` shows `10↋`; seeding that back into a box that is read as decimal
+/// would continue from a different number, with nothing on screen saying
+/// so. The conversion is gate work, so its cost comes back alongside the
+/// text -- separate from the calculation's own bill, because the user
+/// asked for it separately.
+#[tauri::command]
+pub fn chain_operand(state: State<AppState>, face: Face) -> Result<ChainDto, String> {
+    let (backend, input_base, display) = {
+        let sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+        let session = sessions.get(face);
+        (
+            session.backend,
+            session.input_base,
+            session.history.last().map(|entry| entry.display.clone()),
+        )
+    };
+    let display = display.ok_or("nothing to chain from")?;
+    let (text, count) =
+        dz_api::chain_operand(backend, input_base, &display).map_err(|e| e.to_string())?;
+    Ok(ChainDto {
+        text,
+        gate_count: gate_count_dto(&count),
+    })
 }
 
 /// Working digits for the approximate functions. Bounded so a slip of the
 /// keyboard cannot ask for a computation that never returns.
 #[tauri::command]
-pub fn set_scale(state: State<AppState>, scale: usize) -> Result<SessionDto, String> {
+pub fn set_scale(state: State<AppState>, face: Face, scale: usize) -> Result<SessionDto, String> {
     if scale == 0 || scale > 60 {
         return Err("scale must be between 1 and 60 digits".to_string());
     }
-    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let mut sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let session = sessions.get_mut(face);
     session.scale = scale;
-    Ok(session_dto(&session))
+    Ok(session_dto(session))
 }
 
 #[tauri::command]
-pub fn get_session(state: State<AppState>) -> Result<SessionDto, String> {
-    let session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
-    Ok(session_dto(&session))
+pub fn get_session(state: State<AppState>, face: Face) -> Result<SessionDto, String> {
+    let sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    Ok(session_dto(sessions.get(face)))
 }
 
 #[tauri::command]
-pub fn clear_history(state: State<AppState>) -> Result<SessionDto, String> {
-    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+pub fn clear_history(state: State<AppState>, face: Face) -> Result<SessionDto, String> {
+    let mut sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let session = sessions.get_mut(face);
     session.history.clear();
-    Ok(session_dto(&session))
+    Ok(session_dto(session))
 }
 
 /// Store the last result in the memory register.
@@ -245,10 +331,11 @@ pub fn clear_history(state: State<AppState>) -> Result<SessionDto, String> {
 /// and the register would stop repainting when the alphabet changed. Same
 /// shape as the REPL's `:mem+`.
 #[tauri::command]
-pub fn memory_store(state: State<AppState>) -> Result<SessionDto, String> {
-    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+pub fn memory_store(state: State<AppState>, face: Face) -> Result<SessionDto, String> {
+    let mut sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let session = sessions.get_mut(face);
     session.memory = session.history.last().map(|entry| entry.display.clone());
-    Ok(session_dto(&session))
+    Ok(session_dto(session))
 }
 
 /// Set the presentation symbols for ten and eleven.
@@ -260,6 +347,7 @@ pub fn memory_store(state: State<AppState>) -> Result<SessionDto, String> {
 #[tauri::command]
 pub fn set_alphabet(
     state: State<AppState>,
+    face: Face,
     ten: String,
     eleven: String,
 ) -> Result<SessionDto, String> {
@@ -273,24 +361,27 @@ pub fn set_alphabet(
     let ten = one(&ten, "ten")?;
     let eleven = one(&eleven, "eleven")?;
     let alphabet = dz_api::display_alphabet(ten, eleven).map_err(|e| e.to_string())?;
-    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let mut sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let session = sessions.get_mut(face);
     session.alphabet = alphabet;
-    Ok(session_dto(&session))
+    Ok(session_dto(session))
 }
 
 /// Back to `↊`/`↋`, the project's canonical pair.
 #[tauri::command]
-pub fn reset_alphabet(state: State<AppState>) -> Result<SessionDto, String> {
-    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+pub fn reset_alphabet(state: State<AppState>, face: Face) -> Result<SessionDto, String> {
+    let mut sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let session = sessions.get_mut(face);
     session.alphabet = DisplayAlphabet::canonical();
-    Ok(session_dto(&session))
+    Ok(session_dto(session))
 }
 
 #[tauri::command]
-pub fn memory_clear(state: State<AppState>) -> Result<SessionDto, String> {
-    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+pub fn memory_clear(state: State<AppState>, face: Face) -> Result<SessionDto, String> {
+    let mut sessions = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    let session = sessions.get_mut(face);
     session.memory = None;
-    Ok(session_dto(&session))
+    Ok(session_dto(session))
 }
 
 /// The keypad's scientific section is built from this list, so a function

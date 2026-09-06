@@ -26,7 +26,7 @@ use dz_gates::circuits::{multiply_trace, ripple_add_trace, StepRecord};
 use dz_gates::{CrtGates, Digit, DozGates, GateCount, MvlGates, TableGates};
 use dz_int::subtract_trace;
 use dz_parse::alphabet::digit_to_char;
-use dz_parse::{lex, DisplayAlphabet, Token};
+use dz_parse::{lex, to_dozenal_text, DisplayAlphabet, InputBase, Token};
 
 /// One digit position of a ripple-carry run, already resolved to display
 /// glyphs.
@@ -123,6 +123,10 @@ pub struct TraceRequest {
     /// interface renders them through `DisplayAlphabet::from_canonical`.
     /// That is what keeps the CSV export alphabet-stable.
     pub alphabet: DisplayAlphabet,
+    /// The base `a` and `b` are typed in (`docs/10`). Input only, like
+    /// `alphabet`; the trace itself is always dozenal, because the circuit
+    /// being traced is.
+    pub input_base: InputBase,
 }
 
 /// A ripple-carry addition, position by position.
@@ -224,12 +228,22 @@ impl Trace {
 /// is not exactly one integer literal: an expression, a signed value or a
 /// Humphrey point all describe something a single circuit run cannot
 /// represent.
-fn integer_operand(
+fn integer_operand<G: DozGates>(
+    g: &G,
     alphabet: &DisplayAlphabet,
+    input_base: InputBase,
     text: &str,
     which: &str,
 ) -> Result<Vec<Digit>, ApiError> {
-    let text = &alphabet.to_canonical(text)?;
+    // Same two-step funnel, and same asymmetry, as `crate::operand`: the
+    // input base first (it is the one that costs gates), the presentation
+    // alphabet only when the text is dozenal to begin with.
+    let text = to_dozenal_text(g, input_base, text)?;
+    let text = &if input_base.is_dozenal() {
+        alphabet.to_canonical(&text)?
+    } else {
+        text
+    };
     let tokens = lex(text).map_err(|e| ApiError::Parse(dz_parse::ExprParseError::Lex(e)))?;
     match tokens.as_slice() {
         [Token::Number { int_digits, frac_digits }] if frac_digits.is_empty() => {
@@ -252,13 +266,20 @@ fn integer_operand(
 
 /// Run one circuit with the requested backend and record every step.
 pub fn trace(req: &TraceRequest) -> Result<Trace, ApiError> {
-    let a = integer_operand(&req.alphabet, &req.a, "A")?;
-    let b = integer_operand(&req.alphabet, &req.b, "B")?;
+    // The backend is built before the operands are read, not after:
+    // reading them is itself gate work when the input base is ten, and it
+    // has to happen on the backend the caller asked for.
     match req.backend {
-        BackendKind::Mvl => trace_with(&MvlGates::new(), req.kind, &a, &b),
-        BackendKind::Crt => trace_with(&CrtGates::new(), req.kind, &a, &b),
-        BackendKind::Table => trace_with(&TableGates::new(), req.kind, &a, &b),
+        BackendKind::Mvl => trace_for(&MvlGates::new(), req),
+        BackendKind::Crt => trace_for(&CrtGates::new(), req),
+        BackendKind::Table => trace_for(&TableGates::new(), req),
     }
+}
+
+fn trace_for<G: DozGates>(g: &G, req: &TraceRequest) -> Result<Trace, ApiError> {
+    let a = integer_operand(g, &req.alphabet, req.input_base, &req.a, "A")?;
+    let b = integer_operand(g, &req.alphabet, req.input_base, &req.b, "B")?;
+    trace_with(g, req.kind, &a, &b)
 }
 
 /// The same run as `trace`, plus what it cost in gates (Phase 9).
@@ -271,23 +292,21 @@ pub fn trace(req: &TraceRequest) -> Result<Trace, ApiError> {
 /// the same arithmetic asks for the ordinary call, where `execute`
 /// measures both in one pass.
 pub fn trace_measured(req: &TraceRequest) -> Result<(Trace, GateCount), ApiError> {
-    let a = integer_operand(&req.alphabet, &req.a, "A")?;
-    let b = integer_operand(&req.alphabet, &req.b, "B")?;
     match req.backend {
-        BackendKind::Mvl => measured_trace(&MvlGates::new(), req.kind, &a, &b),
-        BackendKind::Crt => measured_trace(&CrtGates::new(), req.kind, &a, &b),
-        BackendKind::Table => measured_trace(&TableGates::new(), req.kind, &a, &b),
+        BackendKind::Mvl => measured_trace(&MvlGates::new(), req),
+        BackendKind::Crt => measured_trace(&CrtGates::new(), req),
+        BackendKind::Table => measured_trace(&TableGates::new(), req),
     }
 }
 
-fn measured_trace<G: DozGates>(
-    g: &G,
-    kind: TraceKind,
-    a: &[Digit],
-    b: &[Digit],
-) -> Result<(Trace, GateCount), ApiError> {
+fn measured_trace<G: DozGates>(g: &G, req: &TraceRequest) -> Result<(Trace, GateCount), ApiError> {
+    // Reading the operands is inside the window, for the same reason it is
+    // in `crate::execute_with`: in base twelve it costs nothing, and in
+    // base ten it is exactly the cost worth showing.
     g.reset_cost();
-    let trace = trace_with(g, kind, a, b)?;
+    let a = integer_operand(g, &req.alphabet, req.input_base, &req.a, "A")?;
+    let b = integer_operand(g, &req.alphabet, req.input_base, &req.b, "B")?;
+    let trace = trace_with(g, req.kind, &a, &b)?;
     Ok((trace, g.cost()))
 }
 
@@ -506,6 +525,7 @@ pub fn compare_backends(
     mode: NumberMode,
     scale: usize,
     alphabet: DisplayAlphabet,
+    input_base: InputBase,
 ) -> Result<BackendComparison, ApiError> {
     let mut costs = Vec::with_capacity(BackendKind::ALL.len());
     let mut display: Option<String> = None;
@@ -515,6 +535,7 @@ pub fn compare_backends(
             mode,
             scale,
             alphabet,
+            input_base,
             op: op.clone(),
         };
         let response = crate::execute(&request)?;

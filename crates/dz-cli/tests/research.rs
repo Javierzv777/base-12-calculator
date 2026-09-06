@@ -8,6 +8,7 @@
 //! guarantee. If someone ever "tidies up" a column in `dz-cli`, this fails.
 
 use dz_api::{
+    InputBase,
     compare_backends, gate_count_csv, trace, trace_csv, trace_summary_csv, BackendKind, NumberMode,
     DisplayAlphabet, Operation, TraceKind, TraceRequest,
 };
@@ -152,6 +153,7 @@ fn the_verdict_the_cli_prints_is_the_one_dz_api_wrote() {
         NumberMode::Fixed,
         dz_api::default_scale(),
         DisplayAlphabet::canonical(),
+        InputBase::Twelve,
     )
     .expect("compares");
     let summary = comparison.verdict.expect("a verdict is written").summary;
@@ -207,6 +209,7 @@ fn the_csv_the_cli_prints_is_byte_for_byte_the_one_dz_api_builds() {
         a: "EEE".to_string(),
         b: "1".to_string(),
         alphabet: DisplayAlphabet::canonical(),
+        input_base: InputBase::Twelve,
     };
     let expected = trace_csv(&trace(&request).expect("traces"));
     assert_eq!(stdout(&run(&["trace", "add", "EEE", "1", "--csv"])), expected);
@@ -222,6 +225,7 @@ fn the_csv_the_cli_prints_is_byte_for_byte_the_one_dz_api_builds() {
         NumberMode::Rational,
         dz_api::default_scale(),
         DisplayAlphabet::canonical(),
+        InputBase::Twelve,
     )
     .expect("compares");
     assert_eq!(

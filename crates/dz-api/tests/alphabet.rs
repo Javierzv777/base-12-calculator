@@ -6,6 +6,7 @@
 //! output left canonical, JSON and CSV untouched.
 
 use dz_api::{
+    InputBase,
     display_alphabet, execute, gate_count_csv, to_json_line, trace, trace_csv, BackendKind,
     DisplayAlphabet, NumberMode, Operation, Request, TraceKind, TraceRequest,
 };
@@ -79,6 +80,7 @@ fn a_trace_reads_its_operands_in_the_alphabet_but_exports_canonical_csv() {
         a: "bbb".to_string(),
         b: "1".to_string(),
         alphabet: ab(),
+        input_base: InputBase::Twelve,
     };
     let typed = trace(&request).expect("traces");
     let canonical = trace(&TraceRequest {
@@ -95,7 +97,7 @@ fn a_trace_reads_its_operands_in_the_alphabet_but_exports_canonical_csv() {
 #[test]
 fn the_gate_csv_is_unaffected_by_the_alphabet() {
     let op = Operation::Sum { a: "b".into(), b: "1".into() };
-    let comparison = dz_api::compare_backends(&op, NumberMode::Fixed, 4, ab()).expect("compares");
+    let comparison = dz_api::compare_backends(&op, NumberMode::Fixed, 4, ab(), InputBase::Twelve).expect("compares");
     let csv = gate_count_csv(&comparison.costs);
     // The gate table carries no dozenal digits at all; the check is that
     // it still builds and still has one row per backend when a
