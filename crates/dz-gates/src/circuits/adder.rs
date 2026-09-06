@@ -41,9 +41,13 @@ fn cycle_pow_net<N: GateNet>(net: &N, x: N::S, j: u8) -> N::S {
 /// one body instead of each growing their own copy of the decoder.
 ///
 /// The `MAX` fold here is deliberately linear, not a balanced tree: the
-/// published half-adder cost of 151 gates is a measured research result, and
-/// rebalancing would silently turn it into 150. Its depth cost (twelve
-/// levels) is measured and reported honestly instead.
+/// published half-adder cost of 151 gates and 15-level depth is a measured
+/// research result, kept intact here so it stays reproducible. The balanced
+/// alternative (`half_adder_raw_net_balanced`, below) was built and measured
+/// as its own circuit instead of silently replacing this one: it turns out
+/// to save only 2 gates (151 -> 149) and, perhaps surprisingly, does *not*
+/// reduce depth at all (still 15) -- see that function's doc comment for
+/// why. This function therefore stays the production core.
 fn half_adder_raw_net<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, N::S) {
     let mut sum = net.lift(Digit::ZERO);
     let mut carry = net.lift(Digit::ZERO);
@@ -59,6 +63,97 @@ fn half_adder_raw_net<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, N::S) {
     (sum, carry)
 }
 
+/// Reduce a nonempty list of signals to one via a balanced binary tree of
+/// `max`, instead of a linear left fold.
+///
+/// Each round pairs up adjacent elements (`chunks(2)`) and combines each
+/// pair with one `max`; an element left over at the end of a round (an odd
+/// count) is carried forward untouched to the next round rather than
+/// combined with anything. `terms.len()` and slice indices below are `usize`
+/// bookkeeping, never a dozenal value -- see the module-level purity note.
+///
+/// This is the balanced counterpart of the plain `while j < RADIX { sum =
+/// net.max(sum, branch_s); ... }` fold in `half_adder_raw_net`: same set of
+/// terms, same final value (`max` is associative and commutative over the
+/// underlying MVL lattice), different circuit shape and therefore different
+/// depth. See `half_adder_raw_net_balanced` for why this does not uniformly
+/// turn 12 levels into 4 -- the terms fed to it are not all the same depth
+/// to begin with.
+///
+/// Panics on an empty `terms`; both call sites always pass exactly `RADIX`
+/// terms.
+fn balanced_max_fold<N: GateNet>(net: &N, mut terms: Vec<N::S>) -> N::S {
+    assert!(!terms.is_empty(), "balanced_max_fold requires at least one term");
+    while terms.len() > 1 {
+        let mut next = Vec::with_capacity(terms.len());
+        for pair in terms.chunks(2) {
+            if pair.len() == 2 {
+                next.push(net.max(pair[0], pair[1]));
+            } else {
+                next.push(pair[0]);
+            }
+        }
+        terms = next;
+    }
+    terms.into_iter().next().unwrap()
+}
+
+/// Balanced-tree counterpart of `half_adder_raw_net`: same twelve `MIN`
+/// branches for `sum` and `carry`, combined with `balanced_max_fold`
+/// instead of a linear fold.
+///
+/// # Why this is not simply "12 levels become 4"
+///
+/// The twelve `carry` branches (`min(lit(j,y), thr(12-j,x))`) are all the
+/// *same* depth: `thr`'s level depends only on `x`'s level, not on the
+/// constant index `j`, so balancing them is the textbook case and the fold
+/// depth really does drop from twelve chained `max`es to `ceil(log2(12)) =
+/// 4`.
+///
+/// The twelve `sum` branches (`min(lit(j,y), cycle_pow(x,j))`) are *not*
+/// uniform: `cycle_pow(x,j)` applies `cycle` to `x` sequentially `j` times,
+/// so branch `j`'s own depth already grows with `j` (branch 11 sits at
+/// depth 12 before it is ever combined with anything). A balanced tree
+/// built by pairing adjacent branches in index order does not know about
+/// that skew, and pairing two deep branches together late in the tree can
+/// cost as much as -- or more than -- the linear fold did.
+///
+/// Measured (MVL backend, `half_adder(7, 9)`):
+///
+/// | | linear fold | balanced tree |
+/// |---|--:|--:|
+/// | `carry` (raw flag) level | 14 | 6 |
+/// | `sum` level | 14 | **15** |
+/// | gate count | 151 | 149 |
+/// | `half_adder` depth (max of both, plus 1 to digitize carry) | 15 | **15** |
+///
+/// The carry fold *does* collapse the way a uniform 12-leaf balanced tree
+/// is supposed to (raw level 14 -> 6). The sum fold gets one level *worse*
+/// (14 -> 15) from positionally pairing adjacent branches without regard to
+/// their pre-existing depth skew, and since `sum`'s level was already tied
+/// with the un-digitized carry's, it becomes the new bottleneck: overall
+/// `half_adder` depth does not move at all. The 2-gate saving (one fewer
+/// `max` per fold, since a balanced tree over 12 leaves needs 11 combines
+/// while the linear fold's `zero`-seeded accumulator needs 12) is real but
+/// modest. This is why `half_adder`/`generate_propagate`/`lookahead_add`
+/// keep using the linear core: the balanced tree is not a clear win on
+/// either axis, let alone both. See `docs/01-diseno-sumador.md` for the
+/// full comparison including `lookahead_add`, where the extra sum level
+/// actually makes the balanced variant one level *deeper* end to end.
+fn half_adder_raw_net_balanced<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, N::S) {
+    let mut sum_terms = Vec::with_capacity(RADIX as usize);
+    let mut carry_terms = Vec::with_capacity(RADIX as usize);
+    let mut j: u8 = 0;
+    while j < RADIX {
+        sum_terms.push(net.min(net.lit(j, y), cycle_pow_net(net, x, j)));
+        carry_terms.push(net.min(net.lit(j, y), net.thr(RADIX - j, x)));
+        j += 1;
+    }
+    let sum = balanced_max_fold(net, sum_terms);
+    let carry = balanced_max_fold(net, carry_terms);
+    (sum, carry)
+}
+
 fn half_adder_net<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, N::S) {
     let (sum, flag) = half_adder_raw_net(net, x, y);
     // `flag` is an MVL-boolean (`Digit::ZERO` for false, `Digit::MAX` for
@@ -69,6 +164,15 @@ fn half_adder_net<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, N::S) {
     // `ZERO` and `ONE` when flag is `MAX` (since `min(MAX, ONE) == ONE`).
     // This is the same "MIN as a mux" trick used for `branch_s` above, just
     // gating a constant instead of a variable.
+    let carry = net.min(flag, net.lift(Digit::ONE));
+    (sum, carry)
+}
+
+/// Balanced-tree counterpart of `half_adder_net`: same final digitizing
+/// step (`MIN(flag, ONE)`), fed by `half_adder_raw_net_balanced` instead of
+/// the linear-fold core.
+fn half_adder_balanced_net<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, N::S) {
+    let (sum, flag) = half_adder_raw_net_balanced(net, x, y);
     let carry = net.min(flag, net.lift(Digit::ONE));
     (sum, carry)
 }
@@ -119,6 +223,16 @@ fn ripple_add_net<N: GateNet>(net: &N, a: &[N::S], b: &[N::S]) -> Vec<N::S> {
 /// require `x + y == 23`, impossible for two digits whose largest sum is 22.
 fn sum_gen_prop_net<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, N::S, N::S) {
     let (sum, gen) = half_adder_raw_net(net, x, y);
+    let prop = net.lit(RADIX - 1, sum);
+    (sum, gen, prop)
+}
+
+/// Balanced-tree counterpart of `sum_gen_prop_net`, fed by
+/// `half_adder_raw_net_balanced` instead of the linear-fold core. Used by
+/// `lookahead_add_balanced` to measure whether rebalancing the shared
+/// decoder also helps the lookahead adder that reuses it.
+fn sum_gen_prop_net_balanced<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, N::S, N::S) {
+    let (sum, gen) = half_adder_raw_net_balanced(net, x, y);
     let prop = net.lit(RADIX - 1, sum);
     (sum, gen, prop)
 }
@@ -176,6 +290,30 @@ fn sum_gen_prop_net<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, N::S, N::S)
 /// only when the final carry is non-zero, which is why the final group
 /// generate is digitized with `MIN(., ONE)` before that test).
 fn lookahead_add_net<N: GateNet>(net: &N, a: &[N::S], b: &[N::S]) -> Vec<N::S> {
+    lookahead_add_net_with(net, a, b, sum_gen_prop_net)
+}
+
+/// Balanced-tree counterpart of `lookahead_add_net`: identical scaffolding
+/// (Stage 1 per-position control signals, Stage 2 Kogge-Stone prefix, Stage
+/// 3 mux), the only difference is that Stage 1 calls
+/// `sum_gen_prop_net_balanced` -- i.e. the shared decoder's `MAX` fold is
+/// balanced instead of linear -- so this measures whether that rebalancing
+/// also pays off once it feeds the lookahead network instead of just a
+/// standalone `half_adder`.
+fn lookahead_add_net_balanced<N: GateNet>(net: &N, a: &[N::S], b: &[N::S]) -> Vec<N::S> {
+    lookahead_add_net_with(net, a, b, sum_gen_prop_net_balanced)
+}
+
+/// Shared body of `lookahead_add_net` and `lookahead_add_net_balanced`,
+/// parameterized only over which per-position `(sum, G, P)` decoder Stage 1
+/// calls -- the prefix network and final mux (Stages 2 and 3) are identical
+/// either way, so they are written once instead of copied. See
+/// `lookahead_add_net`'s doc comment for the algorithm itself.
+fn lookahead_add_net_with<N, F>(net: &N, a: &[N::S], b: &[N::S], sum_gen_prop: F) -> Vec<N::S>
+where
+    N: GateNet,
+    F: Fn(&N, N::S, N::S) -> (N::S, N::S, N::S),
+{
     let n = if a.len() >= b.len() { a.len() } else { b.len() };
     if n == 0 {
         return Vec::new();
@@ -190,7 +328,7 @@ fn lookahead_add_net<N: GateNet>(net: &N, a: &[N::S], b: &[N::S]) -> Vec<N::S> {
     while i < n {
         let da = if i < a.len() { a[i] } else { zero };
         let db = if i < b.len() { b[i] } else { zero };
-        let (s, gi, pi) = sum_gen_prop_net(net, da, db);
+        let (s, gi, pi) = sum_gen_prop(net, da, db);
         sums.push(s);
         gen.push(gi);
         prop.push(pi);
@@ -311,4 +449,55 @@ pub fn lookahead_add_depth<G: DozGates>(g: &G, a: &[Digit], b: &[Digit]) -> u32 
     let sa = lift_slice(&net, a);
     let sb = lift_slice(&net, b);
     max_level(&lookahead_add_net(&net, &sa, &sb))
+}
+
+// ---------------------------------------------------------------------
+// Balanced-tree variants (rebalancing experiment, PLAN.md Section 10bis).
+//
+// `half_adder`/`generate_propagate`/`lookahead_add` above remain exactly as
+// they were: the linear-fold decoder whose 151-gate, 15-level cost is a
+// published, reproducible research result. The functions below are a
+// *second*, independently callable circuit that answers "what happens if
+// that fold is a balanced binary tree instead" without touching the
+// original. Both stay reachable so the comparison in
+// `docs/01-diseno-sumador.md` stays honest and reproducible in both
+// directions. See `half_adder_raw_net_balanced` for why the answer is not
+// simply "150 gates, 4 levels".
+// ---------------------------------------------------------------------
+
+/// Balanced-tree counterpart of `half_adder`: identical inputs/outputs,
+/// the twelve-branch `MAX` decoders for `sum` and `carry` are each combined
+/// with a balanced binary tree (`balanced_max_fold`) instead of a linear
+/// fold. See `half_adder_raw_net_balanced` for the gate-count and depth
+/// story, which differs between the `sum` and `carry` outputs.
+pub fn half_adder_balanced<G: DozGates>(g: &G, x: Digit, y: Digit) -> (Digit, Digit) {
+    half_adder_balanced_net(&Values(g), x, y)
+}
+
+/// Balanced-tree counterpart of `lookahead_add`: same Kogge-Stone prefix
+/// network, fed by the balanced decoder instead of the linear one.
+pub fn lookahead_add_balanced<G: DozGates>(g: &G, a: &[Digit], b: &[Digit]) -> Vec<Digit> {
+    lookahead_add_net_balanced(&Values(g), a, b)
+}
+
+/// Balanced-tree counterpart of `generate_propagate`.
+pub fn generate_propagate_balanced<G: DozGates>(g: &G, x: Digit, y: Digit) -> (Digit, Digit) {
+    let (_s, gen, prop) = sum_gen_prop_net_balanced(&Values(g), x, y);
+    (gen, prop)
+}
+
+/// Circuit depth of `half_adder_balanced`. See the note on `half_adder_depth`.
+pub fn half_adder_balanced_depth<G: DozGates>(g: &G, x: Digit, y: Digit) -> u32 {
+    let net = Levels(g);
+    let (s, c) = half_adder_balanced_net(&net, net.lift(x), net.lift(y));
+    max_level(&[s, c])
+}
+
+/// Circuit depth of `lookahead_add_balanced`. See the note on
+/// `half_adder_depth`.
+pub fn lookahead_add_balanced_depth<G: DozGates>(g: &G, a: &[Digit], b: &[Digit]) -> u32 {
+    let net = Levels(g);
+    let sa = lift_slice(&net, a);
+    let sb = lift_slice(&net, b);
+    max_level(&lookahead_add_net_balanced(&net, &sa, &sb))
 }

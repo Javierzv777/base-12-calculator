@@ -186,9 +186,9 @@ Ver `CLAUDE.md` para rutas y comandos.
 | **5. Fraccionarios** | Punto fijo, racionales exactos, DFP | **Hecha** — `1÷3` da `1/3` exacto |
 | **6. GUI** | App Tauri | Pendiente |
 | **7. Panel investigación** | Conteo de puertas + visor de circuito | Pendiente |
-| **8. Extensiones** | Carry-lookahead, multiplicador v2, `DozOp` | Parcial — v2 y `lookahead_add` hechos, `DozOp` en uso |
+| **8. Extensiones** | Carry-lookahead, multiplicador v2, `DozOp` | **Hecha** — v2, `lookahead_add` y el experimento de rebalanceo cerrados, `DozOp` en uso |
 
-Estado: 65 tests, clippy limpio, lint de pureza con 4 reglas. El DFP se adelantó
+Estado: 69 tests, clippy limpio, lint de pureza con 4 reglas. El DFP se adelantó
 de la Fase 8 a la 5; el multiplicador v2 se adelantó de la 8 a antes de la GUI
 porque su coste bloqueaba los property tests de racionales.
 
@@ -216,10 +216,22 @@ porque su coste bloqueaba los property tests de racionales.
 - Entregado: filas en `examples/gate_counts.rs`, sección «Carry-lookahead
   dozenal (Fase 8)» en `docs/01-diseno-sumador.md`, 13 tests en
   `dz-gates/tests/lookahead.rs`.
-- **Pendiente derivado:** el pliegue lineal de 12 `max` del `half_adder` es
-  ahora el cuello de botella de profundidad (15 de los 17-25 niveles). No se
-  rebalanceó a propósito: convertiría el 151 publicado en 150 y eso hay que
-  decidirlo aparte. `dz-int` tampoco adoptó `lookahead_add` todavía.
+- **Pendiente derivado, ya resuelto:** el pliegue lineal de 12 `max` del
+  `half_adder` era el cuello de botella de profundidad (15 de los 17-25
+  niveles). Se construyó y midió la variante balanceada
+  (`half_adder_balanced`/`lookahead_add_balanced`, función nueva e
+  independiente, sin tocar la de producción) y **no ganó**: el pliegue de
+  `carry` sí balancea como se esperaba (14 → 6 en crudo), pero el de `sum`
+  no, porque sus 12 ramas no tienen la misma profundidad de entrada
+  (`cycle_pow(x,j)` ya es `j` niveles hondo) — balancearlo posicionalmente
+  cuesta un nivel en vez de ahorrarlo (14 → 15), así que la profundidad de
+  `half_adder` se queda en 15 y la de `lookahead_add` en n=16 sube de 25 a
+  26 en vez de bajar a ~17. Solo se gana un poco de conteo de puertas (151 →
+  149 en `half_adder`). Detalle en `docs/01-diseno-sumador.md` sección
+  "Rebalanceo del pliegue lineal (experimento cerrado)". `half_adder`,
+  `generate_propagate` y `lookahead_add` siguen siendo el circuito de
+  producción sin cambios. `dz-int` tampoco adoptó `lookahead_add` todavía
+  (deuda de la parte D, no de esta).
 
 ### B. GUI Tauri (Fase 6) — el salto grande
 - Teclado de 12 dígitos, display, historial, memoria.

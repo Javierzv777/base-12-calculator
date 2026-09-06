@@ -3,8 +3,9 @@
 //!   cargo run -p dz-gates --example gate_counts
 
 use dz_gates::circuits::{
-    digit_mul_v1, digit_mul_v2, half_adder, half_adder_depth, lookahead_add, lookahead_add_depth,
-    multiply, ripple_add, ripple_add_depth,
+    digit_mul_v1, digit_mul_v2, half_adder, half_adder_balanced, half_adder_balanced_depth,
+    half_adder_depth, lookahead_add, lookahead_add_balanced, lookahead_add_balanced_depth,
+    lookahead_add_depth, multiply, ripple_add, ripple_add_depth,
 };
 use dz_gates::{CrtGates, Digit, DozGates, MvlGates};
 
@@ -145,4 +146,63 @@ fn main() {
         "half_adder depth (linear MAX fold, 12 levels): {}",
         half_adder_depth(&g, Digit::new(7).unwrap(), Digit::new(9).unwrap())
     );
+
+    // ---------------------------------------------------------------
+    // Rebalancing experiment (PLAN.md Section 10bis, part A): what happens
+    // if the shared decoder's 12-leaf MAX fold is a balanced binary tree
+    // instead of the linear fold above. See `half_adder_raw_net_balanced`
+    // in `circuits/adder.rs` for why this is not simply "150 gates, 4
+    // levels" -- the sum fold's branches are not uniform depth to begin
+    // with (`cycle_pow(x,j)` is itself `j` levels deep).
+    // ---------------------------------------------------------------
+    println!();
+    println!("Rebalancing experiment -- linear fold vs balanced tree (MVL backend)");
+
+    let g = MvlGates::new();
+    let _ = half_adder(&g, Digit::new(7).unwrap(), Digit::new(9).unwrap());
+    let linear_gates = g.cost().total();
+    let g = MvlGates::new();
+    let linear_depth = half_adder_depth(&g, Digit::new(7).unwrap(), Digit::new(9).unwrap());
+
+    let g = MvlGates::new();
+    let _ = half_adder_balanced(&g, Digit::new(7).unwrap(), Digit::new(9).unwrap());
+    let balanced_gates = g.cost().total();
+    let g = MvlGates::new();
+    let balanced_depth = half_adder_balanced_depth(&g, Digit::new(7).unwrap(), Digit::new(9).unwrap());
+
+    println!(
+        "half_adder(7,9)   gates: linear={:<6} balanced={:<6} | depth: linear={:<3} balanced={}",
+        linear_gates, balanced_gates, linear_depth, balanced_depth
+    );
+
+    println!(
+        "{:<6} {:>12} {:>10} {:>8} {:>10}",
+        "n", "look gts (L)", "(B)", "depth (L)", "(B)"
+    );
+    for n in [1usize, 2, 4, 8, 16] {
+        let a = vec![Digit::MAX; n];
+        let b = {
+            let mut v = vec![Digit::ZERO; n];
+            v[0] = Digit::ONE;
+            v
+        };
+
+        let g = MvlGates::new();
+        let _ = lookahead_add(&g, &a, &b);
+        let look_gates = g.cost().total();
+
+        let g = MvlGates::new();
+        let _ = lookahead_add_balanced(&g, &a, &b);
+        let look_gates_bal = g.cost().total();
+
+        let g = MvlGates::new();
+        let look_depth = lookahead_add_depth(&g, &a, &b);
+        let g = MvlGates::new();
+        let look_depth_bal = lookahead_add_balanced_depth(&g, &a, &b);
+
+        println!(
+            "{:<6} {:>12} {:>10} {:>8} {:>10}",
+            n, look_gates, look_gates_bal, look_depth, look_depth_bal
+        );
+    }
 }

@@ -329,14 +329,17 @@ sobre el carry-lookahead en general:
    solo de haber eliminado el segundo `half_adder`. La ganancia
    *estructural* aparece a partir de n = 2, donde el ripple crece 16
    niveles por dígito y el lookahead 2 por etapa de doblado.
-3. **El pliegue lineal de 12 `max` del `half_adder` sigue ahí y ahora es el
-   cuello de botella.** De los 17-25 niveles del lookahead, 15 son el
-   decodificador compartido; la red de prefijos aporta 2 por etapa. No se
-   rebalanceó a propósito: el 151 publicado es un resultado de la
-   investigación y un árbol balanceado lo convertiría en 150 en silencio.
-   Rebalancear ese pliegue (12 niveles → 4) bajaría el lookahead de 16
-   dígitos de 25 a ~17 niveles; es el siguiente experimento obvio, y es
-   independiente de esta fase.
+3. **El pliegue lineal de 12 `max` del `half_adder` sigue ahí y sigue siendo
+   el cuello de botella, pero no por ser lineal.** De los 17-25 niveles del
+   lookahead, 15 son el decodificador compartido; la red de prefijos aporta
+   2 por etapa. Se probó rebalancear ese pliegue a un árbol binario
+   ("Rebalanceo del pliegue lineal", más abajo): el resultado no fue el
+   esperado (12 niveles → 4) porque el pliegue de `sum` no combina 12
+   términos de igual profundidad — `cycle_pow(x,j)` ya es `j` niveles
+   profundo antes de llegar al pliegue — así que balancear posicionalmente
+   ese pliegue concreto no ayuda (y en `sum` incluso empeora un nivel). El
+   cuello de botella real es esa cadena de `cycle_pow`, no la forma del
+   pliegue que la combina.
 
 Ninguna capa por encima de `dz-gates` usa todavía `lookahead_add`:
 `dz-int` sigue llamando a `ripple_add`. La sustitución es trivial (misma
@@ -344,10 +347,80 @@ firma, misma semántica) pero se deja fuera de esta fase para que los
 números publicados de `multiply`, `div_rem`, etc. sigan siendo comparables
 con los de las fases anteriores.
 
+## Rebalanceo del pliegue lineal (experimento cerrado)
+
+La Fase 8 dejó anotado como "el siguiente experimento obvio" rebalancear el
+pliegue lineal de 12 `max` de `half_adder_raw_net` a un árbol binario
+balanceado, con la expectativa (basada en tratar los 12 términos como si
+tuvieran todos la misma profundidad) de que el `half_adder` bajaría de 151 a
+150 puertas y de 15 a ~4 niveles, y que `lookahead_add` en n=16 bajaría de
+25 a ~17 niveles.
+
+Se construyó como `half_adder_raw_net_balanced` (`crates/dz-gates/src/circuits/adder.rs`),
+una copia independiente del núcleo, generada del mismo `sum_terms`/`carry_terms`
+que el original pero combinados con `balanced_max_fold` (una reducción
+`chunks(2)` en rondas: cada ronda combina pares adyacentes con `max`, un
+elemento sobrante se arrastra sin combinar a la siguiente ronda) en vez del
+`while j < RADIX { sum = net.max(sum, branch_s); ... }` lineal. Expuesta
+como `half_adder_balanced`, `generate_propagate_balanced` y
+`lookahead_add_balanced` — funciones nuevas, sin tocar `half_adder`,
+`generate_propagate` ni `lookahead_add`, que siguen siendo exactamente el
+circuito de producción y el resultado publicado.
+
+**La expectativa era incorrecta, y por una razón estructural real, no un
+error de implementación.** Los 12 términos del pliegue de `sum`
+(`min(lit(j,y), cycle_pow(x,j))`) no tienen la misma profundidad: `cycle_pow(x,j)`
+aplica `cycle` a `x` secuencialmente `j` veces, así que el término `j` ya
+tiene profundidad `j` *antes* de combinarse con nada — el término 11 llega
+al pliegue con profundidad 12. Un árbol balanceado construido emparejando
+posiciones adyacentes sin tener en cuenta esa asimetría no la compensa: en
+este circuito concreto, el pliegue de `sum` termina un nivel **peor** (14 →
+15) en vez de mejor. El pliegue de `carry` sí es uniforme (`thr` no depende
+de `j`, así que sus 12 ramas tienen todas profundidad 2) y ahí el árbol
+balanceado funciona como se esperaba (14 → 6 en crudo). Pero como la
+profundidad de `half_adder` es el máximo de ambas salidas, el empeoramiento
+de `sum` absorbe por completo la mejora de `carry`:
+
+| | pliegue lineal (producción) | árbol balanceado |
+|---|--:|--:|
+| `carry` (crudo, antes de digitalizar) | 14 | 6 |
+| `sum` | 14 | **15** |
+| puertas de `half_adder(7,9)` | 151 | 149 |
+| profundidad de `half_adder` | 15 | **15** |
+
+Solo se ahorran 2 puertas (un árbol balanceado sobre 12 hojas necesita 11
+combinaciones; el pliegue lineal, al arrancar de un acumulador `ZERO`,
+necesita 12), y la profundidad no mejora nada. En `lookahead_add`, que
+reutiliza este mismo núcleo compartido para `sum`/`G`/`P`, el nivel extra de
+`sum` se propaga a través de `P = lit(11, sum)` y del mux final, así que el
+resultado ahí es un nivel **peor** en todo el rango medido, no mejor:
+
+| n | puertas lookahead (lineal) | puertas (balanceado) | prof. (lineal) | prof. (balanceado) |
+|--:|--:|--:|--:|--:|
+| 1 | 157 | 155 | 17 | 18 |
+| 2 | 316 | 312 | 18 | 19 |
+| 4 | 640 | 632 | 21 | 22 |
+| 8 | 1 300 | 1 284 | 23 | 24 |
+| 16 | 2 644 | 2 612 | 25 | 26 |
+
+(El conteo de puertas baja un poco en todos los anchos —el núcleo balanceado
+es 2 puertas más barato por posición— pero la profundidad sube exactamente
+1 nivel en todos los anchos medidos, consistente con la tabla de un dígito.)
+
+**Conclusión: el árbol balanceado no es una mejora clara en ninguna de las
+dos métricas relevantes (ni siquiera en la que sí mejora, el conteo de
+`half_adder` aislado, compensa la pérdida de profundidad en `lookahead_add`),
+así que no reemplaza al pliegue lineal.** `half_adder`, `generate_propagate`
+y `lookahead_add` — y por tanto los números publicados 151, 1 212 y la tabla
+de la Fase 8 de arriba — siguen siendo el circuito de producción, sin
+cambios. La variante balanceada queda como código público
+(`half_adder_balanced`, `lookahead_add_balanced`, y sus `_depth`) y medida
+(test de regresión en `crates/dz-gates/tests/lookahead.rs`,
+fila añadida a `cargo run -p dz-gates --example gate_counts`) precisamente
+para que esta comparación —y la razón real detrás de ella, la profundidad
+inherente de `cycle_pow`, no una carencia del árbol— quede reproducible en
+vez de asumida.
+
 ## Qué no se construyó (honestidad de alcance)
 
-- Rebalanceo del pliegue lineal de 12 `max` dentro de `half_adder`. Se
-  midió su coste en profundidad (12 de los 15 niveles) pero no se cambió:
-  reduciría el 151 publicado a 150 y hay que decidirlo como un cambio de
-  resultado, no colarlo dentro de la Fase 8.
 - `dz-int` no adoptó `lookahead_add`; sigue en `ripple_add`.

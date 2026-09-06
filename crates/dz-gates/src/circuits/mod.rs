@@ -6,8 +6,9 @@ pub mod multiplier;
 pub mod parity;
 
 pub use adder::{
-    full_adder, generate_propagate, half_adder, half_adder_depth, lookahead_add,
-    lookahead_add_depth, ripple_add, ripple_add_depth,
+    full_adder, generate_propagate, generate_propagate_balanced, half_adder, half_adder_balanced,
+    half_adder_balanced_depth, half_adder_depth, lookahead_add, lookahead_add_balanced,
+    lookahead_add_balanced_depth, lookahead_add_depth, ripple_add, ripple_add_depth,
 };
 pub use comparator::{flag_to_bool, ge};
 pub use complement::{ones_complement, ones_complement_digit, radix_complement};

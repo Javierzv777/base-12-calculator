@@ -14,8 +14,9 @@
 
 use dz_gates::backends::{oracle_add, CrtGates, MvlGates, TableGates};
 use dz_gates::circuits::{
-    generate_propagate, half_adder, half_adder_depth, lookahead_add, lookahead_add_depth,
-    ripple_add, ripple_add_depth,
+    generate_propagate, half_adder, half_adder_balanced, half_adder_balanced_depth,
+    half_adder_depth, lookahead_add, lookahead_add_balanced, lookahead_add_balanced_depth,
+    lookahead_add_depth, ripple_add, ripple_add_depth,
 };
 use dz_gates::{Digit, DozGates};
 use proptest::prelude::*;
@@ -246,6 +247,121 @@ fn half_adder_depth_model_is_pinned() {
         for y in all_digits() {
             assert_eq!(half_adder_depth(&g, x, y), 15);
         }
+    }
+}
+
+// ---------------------------------------------------------------------
+// (h) Balanced-tree rebalancing experiment (PLAN.md Section 10bis, part A).
+//
+// `half_adder_balanced`/`lookahead_add_balanced` are a second, independent
+// circuit -- the linear-fold production functions above are untouched, so
+// the 151/1212/15 numbers pinned above stay pinned. These tests instead
+// pin what the balanced tree actually measures: same results for every
+// input, a small gate-count win, and (contrary to the naive "12 levels
+// become 4" intuition) *no* depth win for `half_adder` and a one-level
+// *loss* for `lookahead_add`. See `half_adder_raw_net_balanced`'s doc
+// comment in `circuits/adder.rs` and `docs/01-diseno-sumador.md` for why.
+// ---------------------------------------------------------------------
+
+#[test]
+fn half_adder_balanced_matches_half_adder_144() {
+    let g = MvlGates::new();
+    let mut count = 0;
+    for x in all_digits() {
+        for y in all_digits() {
+            assert_eq!(
+                half_adder_balanced(&g, x, y),
+                half_adder(&g, x, y),
+                "half_adder_balanced disagrees with half_adder at ({:?},{:?})",
+                x,
+                y
+            );
+            count += 1;
+        }
+    }
+    assert_eq!(count, 144);
+}
+
+#[test]
+fn half_adder_balanced_gate_count_and_depth_are_pinned() {
+    let g = MvlGates::new();
+    let _ = half_adder_balanced(&g, d(7), d(9));
+    let c = g.cost();
+    assert_eq!(
+        (c.cycle, c.min, c.max, c.lit, c.thr),
+        (66, 25, 22, 24, 12),
+        "half_adder_balanced primitive breakdown changed"
+    );
+    // Two fewer `max` invocations than the linear fold's 151 (one per
+    // 12-leaf fold: a balanced tree over 12 leaves needs 11 combines, the
+    // zero-seeded linear accumulator needs 12).
+    assert_eq!(c.total(), 149, "half_adder_balanced total changed");
+
+    // Depth does NOT improve: the carry fold collapses from 14 to 6 raw
+    // levels as expected of a uniform-depth balanced tree, but the sum
+    // fold's branches are not uniform (cycle_pow(x,j) is itself j levels
+    // deep), so positionally pairing them costs sum a level (14 -> 15) and
+    // that becomes the new bottleneck. Net effect: still 15.
+    assert_eq!(half_adder_balanced_depth(&g, d(7), d(9)), 15);
+    for x in all_digits() {
+        for y in all_digits() {
+            assert_eq!(half_adder_balanced_depth(&g, x, y), 15);
+        }
+    }
+}
+
+#[test]
+fn lookahead_add_balanced_matches_lookahead_add() {
+    let g = MvlGates::new();
+    for n in 1usize..=16 {
+        let (a, b) = worst_case_operands(n);
+        assert_eq!(
+            lookahead_add_balanced(&g, &a, &b),
+            lookahead_add(&g, &a, &b),
+            "n={}",
+            n
+        );
+    }
+    // Also the exhaustive single-digit case, all 144 pairs.
+    let mut count = 0;
+    for x in all_digits() {
+        for y in all_digits() {
+            assert_eq!(
+                lookahead_add_balanced(&g, &[x], &[y]),
+                lookahead_add(&g, &[x], &[y]),
+                "n=1 at ({:?},{:?})",
+                x,
+                y
+            );
+            count += 1;
+        }
+    }
+    assert_eq!(count, 144);
+}
+
+#[test]
+fn lookahead_add_balanced_depth_is_pinned() {
+    let g = MvlGates::new();
+    // One level worse than the linear-core lookahead at every width: the
+    // shared decoder's sum output is a level deeper under the balanced
+    // tree (see `half_adder_balanced_gate_count_and_depth_are_pinned`), and
+    // that extra level rides through P = lit(11, sum) and the final mux
+    // straight to the output.
+    for (n, expected) in [(1usize, 18u32), (2, 19), (4, 22), (8, 24), (16, 26)] {
+        let (a, b) = worst_case_operands(n);
+        assert_eq!(
+            lookahead_add_balanced_depth(&g, &a, &b),
+            expected,
+            "lookahead_add_balanced n={}",
+            n
+        );
+        // Confirm it is exactly one level worse than the production path.
+        assert_eq!(
+            lookahead_add_balanced_depth(&g, &a, &b),
+            lookahead_add_depth(&g, &a, &b) + 1,
+            "n={}",
+            n
+        );
     }
 }
 

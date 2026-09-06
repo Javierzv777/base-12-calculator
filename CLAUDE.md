@@ -60,6 +60,7 @@ Las capas solo llaman hacia abajo: `dz-cli` → `dz-eval` → `dz-parse` → `dz
 | Oráculo por tabla, `oracle_add`, `oracle_mul` — **solo para tests** | `src/backends/table.rs` |
 | `half_adder`, `full_adder`, `ripple_add` | `src/circuits/adder.rs` |
 | `lookahead_add`, `generate_propagate`, `*_depth` (Fase 8) | `src/circuits/adder.rs` |
+| `half_adder_balanced`, `lookahead_add_balanced`, `*_balanced_depth` (experimento de rebalanceo, no es producción) | `src/circuits/adder.rs` |
 | Trait `GateNet` + `Values`/`Levels` (medición de profundidad) | `src/circuits/depth.rs` |
 | `digit_mul_v1` (shift-add), `digit_mul_v2` (SOP, por defecto), `multiply` | `src/circuits/multiplier.rs` |
 | `ge`, `flag_to_bool` | `src/circuits/comparator.rs` |
@@ -166,6 +167,29 @@ en pasadas separadas con backends frescos.
 **CRT no compensa.** Misma topología que MVL pero necesita reconstruir el dígito
 para toda comparación de orden (`min`/`max`/`thr`): 176 reconstrucciones en un
 `half_adder`, 13.938 en un `multiply` 3×2. La ventaja de descomponer nunca llega.
+
+**Rebalanceo del pliegue lineal — experimento cerrado, no reemplaza al lineal.**
+`half_adder_balanced`/`lookahead_add_balanced` (`circuits/adder.rs`) combinan el
+mismo decodificador de 12 ramas con un árbol binario (`balanced_max_fold`) en
+vez del pliegue lineal, como función nueva e independiente — `half_adder`,
+`generate_propagate` y `lookahead_add` (números de arriba) no se tocaron:
+
+| | pliegue lineal (producción) | árbol balanceado |
+|---|--:|--:|
+| `half_adder(7,9)` puertas | **151** | 149 |
+| `half_adder` profundidad | **15** | 15 |
+| `lookahead_add` n=16 puertas | **2.644** | 2.612 |
+| `lookahead_add` n=16 profundidad | **25** | 26 |
+
+El pliegue de `carry` sí es uniforme (todas sus 12 ramas usan `thr`, que no
+depende de `j`) y balancea como se esperaría (14 → 6 en crudo). El de `sum`
+no: `cycle_pow(x,j)` ya es `j` niveles hondo por sí solo, así que emparejar
+posicionalmente sus 12 ramas no elimina esa profundidad y en este circuito
+concreto la empeora un nivel (14 → 15) en vez de mejorarla — y por eso la
+profundidad de `half_adder` (el máximo de ambas salidas) no baja, y la de
+`lookahead_add` (que reutiliza `sum` para `P` y el mux final) sube. Detalle
+completo en `docs/01-diseno-sumador.md` sección "Rebalanceo del pliegue
+lineal (experimento cerrado)".
 
 ## Limitaciones conocidas (no son bugs por descubrir)
 
