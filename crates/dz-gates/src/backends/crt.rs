@@ -53,17 +53,15 @@ pub struct CrtGates {
     counter: Counter,
     /// Extra instrumentation: number of full CRT->tag reconstructions
     /// performed. Not part of `GateCount` (which stays backend-agnostic at
-    /// the 5-primitive level) but exposed for the CRT-vs-MVL cost writeup.
+    /// the 5-primitive level) but exposed through
+    /// `DozGates::reconstruction_ops`, which is what carries it up to
+    /// `dz-api` and from there to both interfaces.
     recon_ops: Cell<u64>,
 }
 
 impl CrtGates {
     pub fn new() -> Self {
         CrtGates::default()
-    }
-
-    pub fn reconstruction_ops(&self) -> u64 {
-        self.recon_ops.get()
     }
 
     fn bump_recon(&self) {
@@ -136,6 +134,12 @@ impl DozGates for CrtGates {
 
     fn cost(&self) -> GateCount {
         self.counter.snapshot()
+    }
+
+    /// The CRT-only overhead, as `DozGates::reconstruction_ops` promises:
+    /// one per order comparison rebuilt from residues.
+    fn reconstruction_ops(&self) -> u64 {
+        self.recon_ops.get()
     }
 
     fn reset_cost(&self) {

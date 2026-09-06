@@ -124,3 +124,33 @@ fn digit_mul_v1_v2_and_oracle_agree_144_all_backends() {
     check_v1_v2_against_oracle("crt", &CrtGates::new());
     check_v1_v2_against_oracle("table", &TableGates::new());
 }
+
+/// The counter that separates the backends when `GateCount` cannot.
+///
+/// `docs/02-crt-vs-mvl.md`: the same circuit invokes the same primitives
+/// the same number of times on every backend, so equal counters are a
+/// property of the design, not a measurement. What CRT actually pays is
+/// the reconstruction it needs before any order comparison, and only CRT
+/// pays it -- MVL and the table oracle store the tag itself, so their
+/// zero is the truth rather than a missing number.
+#[test]
+fn only_crt_reports_reconstructions_for_the_same_circuit() {
+    let mvl = MvlGates::new();
+    let crt = CrtGates::new();
+    let table = TableGates::new();
+    let (x, y) = (Digit::new(7).unwrap(), Digit::new(9).unwrap());
+    for g in [&mvl as &dyn DozGates, &crt, &table] {
+        let _ = half_adder(&dz_gates::DynGates(g), x, y);
+    }
+    assert_eq!(mvl.cost(), crt.cost(), "counters tie by construction");
+    assert_eq!(mvl.cost(), table.cost(), "counters tie by construction");
+    assert_eq!(mvl.reconstruction_ops(), 0);
+    assert_eq!(table.reconstruction_ops(), 0);
+    assert_eq!(
+        crt.reconstruction_ops(),
+        176,
+        "the number docs/02-crt-vs-mvl.md publishes for half_adder(7,9)"
+    );
+    crt.reset_cost();
+    assert_eq!(crt.reconstruction_ops(), 0, "reset clears it too");
+}

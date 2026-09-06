@@ -6,7 +6,7 @@
 //! the Rust side of the bridge. The frontend never decides anything about
 //! dozenal semantics -- it renders what this state and `dz-api` hand it.
 
-use dz_api::{BackendKind, NumberMode};
+use dz_api::{BackendCost, BackendKind, NumberMode, Trace};
 use serde::Serialize;
 use std::sync::Mutex;
 
@@ -31,6 +31,12 @@ pub struct Session {
     pub history: Vec<HistoryEntry>,
     /// The M+/MR register: the last stored result, as text.
     pub memory: Option<String>,
+    /// Phase 7: what the research panel last produced. Kept here so the
+    /// CSV export re-serializes the very table the user is looking at,
+    /// rather than recomputing something that might differ (a different
+    /// backend, a different operand) between the click and the save.
+    pub last_comparison: Option<Vec<BackendCost>>,
+    pub last_trace: Option<Trace>,
 }
 
 impl Default for Session {
@@ -41,6 +47,8 @@ impl Default for Session {
             scale: dz_api::default_scale(),
             history: Vec::new(),
             memory: None,
+            last_comparison: None,
+            last_trace: None,
         }
     }
 }

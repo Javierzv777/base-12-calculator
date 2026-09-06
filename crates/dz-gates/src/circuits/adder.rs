@@ -154,7 +154,11 @@ fn half_adder_raw_net_balanced<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, 
     (sum, carry)
 }
 
-fn half_adder_net<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, N::S) {
+/// The half-adder as a circuit over any `GateNet` signal type. `half_adder`
+/// is its `Values` instantiation; `dz-int` and `circuits::multiplier` use
+/// this form so a whole-expression depth run can thread `Levels` through
+/// without a second copy of the circuit existing.
+pub fn half_adder_net<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, N::S) {
     let (sum, flag) = half_adder_raw_net(net, x, y);
     // `flag` is an MVL-boolean (`Digit::ZERO` for false, `Digit::MAX` for
     // true) -- `lit`/`thr` both signal "true" as the top symbol, not as the
@@ -177,14 +181,33 @@ fn half_adder_balanced_net<N: GateNet>(net: &N, x: N::S, y: N::S) -> (N::S, N::S
     (sum, carry)
 }
 
-fn full_adder_net<N: GateNet>(net: &N, x: N::S, y: N::S, cin: N::S) -> (N::S, N::S) {
+/// The full adder as a circuit over any `GateNet` signal type.
+pub fn full_adder_net<N: GateNet>(net: &N, x: N::S, y: N::S, cin: N::S) -> (N::S, N::S) {
     let (s1, c1) = half_adder_net(net, x, y);
     let (s2, c2) = half_adder_net(net, s1, cin);
     let cout = net.max(c1, c2);
     (s2, cout)
 }
 
-fn ripple_add_net<N: GateNet>(net: &N, a: &[N::S], b: &[N::S]) -> Vec<N::S> {
+/// Ripple-carry addition with a per-position trace sink.
+///
+/// This is the *only* copy of the ripple-carry loop: `ripple_add_net` (and
+/// therefore the public `ripple_add`) is this function with a callback
+/// that does nothing, so the Phase 7 step-by-step viewer observes exactly
+/// the circuit production runs rather than a re-implementation of it.
+/// `on_step` receives `(position, a_i, b_i, carry_in, sum, carry_out)`;
+/// `position` is the existing `usize` loop index, sanctioned bookkeeping.
+///
+/// Recording a step invokes no primitive: it reads signals the full adder
+/// already produced. A `GateCount` taken around `ripple_add_trace` is
+/// therefore byte-for-byte the one taken around `ripple_add`, which
+/// `dz-gates/tests/trace.rs` pins by regression.
+pub fn ripple_add_net_traced<N: GateNet>(
+    net: &N,
+    a: &[N::S],
+    b: &[N::S],
+    mut on_step: impl FnMut(usize, N::S, N::S, N::S, N::S, N::S),
+) -> Vec<N::S> {
     let n = if a.len() >= b.len() { a.len() } else { b.len() };
     let zero = net.lift(Digit::ZERO);
     let mut out = Vec::with_capacity(n + 1);
@@ -193,7 +216,9 @@ fn ripple_add_net<N: GateNet>(net: &N, a: &[N::S], b: &[N::S]) -> Vec<N::S> {
     while i < n {
         let da = if i < a.len() { a[i] } else { zero };
         let db = if i < b.len() { b[i] } else { zero };
-        let (s, c) = full_adder_net(net, da, db, carry);
+        let carry_in = carry;
+        let (s, c) = full_adder_net(net, da, db, carry_in);
+        on_step(i, da, db, carry_in, s, c);
         out.push(s);
         carry = c;
         i += 1;
@@ -204,6 +229,11 @@ fn ripple_add_net<N: GateNet>(net: &N, a: &[N::S], b: &[N::S]) -> Vec<N::S> {
         out.push(carry);
     }
     out
+}
+
+/// Ripple-carry addition as a circuit over any `GateNet` signal type.
+pub fn ripple_add_net<N: GateNet>(net: &N, a: &[N::S], b: &[N::S]) -> Vec<N::S> {
+    ripple_add_net_traced(net, a, b, |_, _, _, _, _, _| {})
 }
 
 /// Half-sum plus the two carry-lookahead control signals for one position.

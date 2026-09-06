@@ -61,7 +61,13 @@ function button(spec: KeySpec): HTMLButtonElement {
     element.title = spec.title;
   }
   if (spec.insert !== undefined) {
-    element.dataset.insert = spec.insert;
+    // Insert what the key *shows*. On a machine without U+218A/U+218B the
+    // label falls back to the ASCII alias, and inserting the glyph anyway
+    // would put a character the expression box cannot draw either --
+    // breaking the promise glyphs.ts makes, that what the user sees can be
+    // typed back in. The lexer accepts both spellings, so this changes the
+    // spelling and never the value.
+    element.dataset.insert = display(spec.insert);
   }
   if (spec.action) {
     element.dataset.action = spec.action;

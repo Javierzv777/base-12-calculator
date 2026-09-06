@@ -12,11 +12,13 @@ import {
   setMode,
   setScale,
   type CalcResponse,
+  type Operation,
   type Session,
 } from "./api";
 import { display, initGlyphMode } from "./glyphs";
 import { renderHistory } from "./history";
 import { renderKeypad, renderScientificPad } from "./keypad";
+import { initResearch, paintResearchGates } from "./research";
 
 function element<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
@@ -39,6 +41,10 @@ const historyList = element<HTMLUListElement>("history-list");
 
 let session: Session | null = null;
 let lastResult = "";
+// The last thing actually evaluated, kept so the research panel can re-run
+// it against the three backends without asking the user to retype it.
+let lastOperation: Operation | null = null;
+let lastLabel = "";
 
 function fillSelect(select: HTMLSelectElement, values: string[], current: string): void {
   select.replaceChildren(
@@ -73,10 +79,14 @@ function paintGates(response: CalcResponse | null): void {
     ["g-lit", counts?.lit ?? 0],
     ["g-thr", counts?.thr ?? 0],
     ["g-total", counts?.total ?? 0],
+    ["g-depth", response?.depth ?? 0],
   ];
   for (const [id, value] of cells) {
     element(id).textContent = value.toLocaleString("es");
   }
+  // The research view shows the same numbers with more room around them.
+  // One painter, two destinations -- the two tables cannot drift.
+  paintResearchGates(counts, response?.depth ?? null, lastLabel);
 }
 
 function paintNotes(response: CalcResponse): void {
@@ -108,11 +118,14 @@ async function evaluate(): Promise<void> {
   if (source.length === 0) {
     return;
   }
+  const operation: Operation = { kind: "eval", expr: source };
   try {
-    const response = await calc({ kind: "eval", expr: source });
+    const response = await calc(operation);
     result.classList.remove("error");
     result.textContent = display(response.display);
     lastResult = response.display;
+    lastOperation = operation;
+    lastLabel = source;
     paintNotes(response);
     paintGates(response);
     paintSession(await getSession());
@@ -172,6 +185,23 @@ function wireKeys(container: HTMLElement): void {
   });
 }
 
+/// Two top-level views the user alternates between, not a panel that
+/// swaps the calculator's sidebar: the research widgets need the whole
+/// width (a three-backend table, and a step viewer that lists a dozen
+/// digit positions side by side). "Calculadora" is the default.
+function showView(name: string): void {
+  for (const view of ["calculator", "research"]) {
+    const active = view === name;
+    element(`view-${view}`).classList.toggle("hidden", !active);
+    const tab = element(`tab-${view}`);
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
+  }
+  if (name === "calculator") {
+    expression.focus();
+  }
+}
+
 async function boot(): Promise<void> {
   initGlyphMode();
   renderKeypad(keypad);
@@ -181,6 +211,14 @@ async function boot(): Promise<void> {
 
   paintSession(await getSession());
   paintGates(null);
+
+  for (const view of ["calculator", "research"]) {
+    element(`tab-${view}`).addEventListener("click", () => showView(view));
+  }
+  initResearch({
+    lastOperation: () => lastOperation,
+    onError: showError,
+  });
 
   expression.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {

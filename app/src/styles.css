@@ -23,12 +23,19 @@
   box-sizing: border-box;
 }
 
+/* A column of [tab bar, active view] so the bar can stay put while the
+   view under it scrolls: at the default window size the calculator is
+   taller than the viewport, and a tab bar that scrolls away takes the
+   only route to the research view with it. */
 body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
   font-family: var(--digits);
   font-size: 15px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 
 .app {
@@ -36,8 +43,8 @@ body {
   grid-template-columns: minmax(420px, 1fr) minmax(300px, 380px);
   gap: 16px;
   padding: 16px;
-  min-height: 100vh;
   align-items: start;
+  flex: 1;
 }
 
 .panel {
@@ -266,8 +273,15 @@ input[type="number"] {
   cursor: pointer;
 }
 
-.small:hover {
+.small:hover:not(:disabled) {
   background: #2b3040;
+}
+
+/* The research panel disables its export and playback buttons until there
+   is something to export or step through; unstyled, they look pressable. */
+.small:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .history-head {
@@ -332,4 +346,232 @@ body.ascii-glyphs .key.digit {
   .app {
     grid-template-columns: 1fr;
   }
+}
+
+/* --- Phase 7: the research view ------------------------------------ */
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 1rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg);
+  flex: none;
+}
+
+.tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  padding: 0.45rem 1rem;
+  font: inherit;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.tab:hover {
+  opacity: 0.85;
+}
+
+.tab.active {
+  opacity: 1;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.view.hidden {
+  display: none;
+}
+
+.research {
+  padding: 1rem;
+  flex: 1;
+}
+
+.research-block {
+  margin-bottom: 1.75rem;
+}
+
+/* Without this the browser default (1.5em, bold) makes every block
+   heading larger than the view's own <h1>, inverting the hierarchy. */
+.research-block h2 {
+  margin: 1.4rem 0 0.2rem;
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-dim);
+}
+
+.block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.block-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.muted {
+  opacity: 0.65;
+}
+
+.small-note {
+  font-size: 0.85em;
+  max-width: 62ch;
+}
+
+table.grid {
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+}
+
+table.grid th,
+table.grid td {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.25rem 0.7rem;
+  text-align: right;
+}
+
+table.grid thead th {
+  text-align: center;
+}
+
+table.grid tbody th {
+  text-align: left;
+  font-weight: normal;
+  opacity: 0.75;
+}
+
+table.grid tr.total th,
+table.grid tr.total td {
+  font-weight: 600;
+}
+
+.comparison .backend-name {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* The verdict paragraph under the comparison table. Rust writes the text;
+   this only gives it room to be read as prose. */
+.verdict {
+  margin: 0.8rem 0 0;
+  font-size: 0.85em;
+  line-height: 1.5;
+  opacity: 0.85;
+  max-width: 60ch;
+}
+
+.badge.warn {
+  display: block;
+  font-size: 0.7em;
+  opacity: 0.7;
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.trace-form {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 0.6rem 0;
+}
+
+.trace-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+/* The global rule above covers <select> and number inputs; these are
+   text inputs, which would otherwise keep the platform's light default
+   and read as holes in a dark panel. */
+.trace-form input,
+.trace-form select {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.trace-form input {
+  width: 10rem;
+}
+
+.trace-form input:focus,
+.trace-form select:focus {
+  outline: 1px solid var(--accent);
+}
+
+.playback {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.6rem 0;
+}
+
+.stage {
+  margin: 0.9rem 0 0.3rem;
+}
+
+.stage h3 {
+  margin: 0;
+  font-size: 0.95em;
+}
+
+.stage .digits,
+.mul-row .digits {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 1.15em;
+  letter-spacing: 0.12em;
+  margin: 0.2rem 0;
+}
+
+.mul-row {
+  border-left: 2px solid rgba(255, 255, 255, 0.12);
+  padding-left: 0.9rem;
+  margin: 0.9rem 0;
+}
+
+table.steps td.digit {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  text-align: center;
+}
+
+table.steps td.carry {
+  opacity: 0.7;
+}
+
+table.steps td.sum {
+  font-weight: 600;
+}
+
+/* Playback: the current step is highlighted, later ones are dimmed, so
+   "watch the carry propagate" reads as a sequence rather than a table. */
+table.steps tr.current td,
+table.steps tr.current th {
+  background: rgba(120, 190, 255, 0.16);
+}
+
+table.steps tr.pending td {
+  opacity: 0.32;
+}
+
+.error {
+  color: #ff8f8f;
 }

@@ -765,3 +765,70 @@ cd app && npm install                    # una vez
 npm run tauri dev                        # GUI en desarrollo
 npm run tauri build                      # instalador
 ```
+
+### 9.5 `cargo build --release` **no** produce una GUI usable (y por qué)
+
+Síntoma observado: al abrir `app/src-tauri/target/release/dz-gui.exe` con doble
+clic, la ventana se llama «Calculadora Dozenal (base 12)» pero pinta el error de
+Edge «Vaya… no se puede acceder a esta página / localhost rechazó la conexión»
+(`ERR_CONNECTION_REFUSED`).
+
+**Causa.** No es CSP, ni las capacidades, ni el protocolo de assets: ese binario
+había sido construido con un `cargo build --release` suelto. Tauri v2 decide
+entre `build.devUrl` y `build.frontendDist` **en tiempo de compilación**, a
+partir de una feature de Cargo, no del perfil de compilación:
+
+- `tauri/build.rs` hace `let dev = !has_feature("custom-protocol")` y emite
+  `cargo:dev={dev}` (tauri 2.11.5, líneas 255-261).
+- `tauri-build::build()` lee esa metadata (`DEP_TAURI_DEV`) en `is_dev()` y
+  genera el alias `cfg(dev)` (tauri-build 2.6.3, `src/lib.rs:425` y `:519`).
+- Con `cfg(dev)` activo la ventana navega a `devUrl`
+  (`http://localhost:5173`); sin él, sirve los assets empotrados por
+  `tauri::generate_context!` a través del protocolo propio
+  (`http://tauri.localhost`).
+
+`cargo build --release` no activa esa feature, así que **`--release` sigue
+siendo un binario de desarrollo**: apunta a Vite, y sin `npm run dev` corriendo
+el servidor no existe. El perfil `release` sólo cambia las optimizaciones.
+
+Evidencia registrada (no deducción): el `output` del script de construcción del
+binario que fallaba, `app/src-tauri/target/release/build/dz-gui-<hash>/output`,
+contenía la línea `cargo:rustc-cfg=dev`; y al levantar un `HttpListener` de
+prueba en `http://localhost:5173/` y relanzar ese mismo `.exe`, la página de
+error desapareció y la ventana pasó a mostrar la respuesta del servidor de
+prueba. Es decir: navegaba a Vite.
+
+**Cómo se construye de verdad.**
+
+```bash
+cd app
+npm run tauri build                 # instalador + .exe
+npm run tauri build -- --no-bundle  # sólo el .exe, sin empaquetadores de Windows
+```
+
+El CLI de Tauri hace dos cosas que `cargo` solo no hace:
+
+1. ejecuta `beforeBuildCommand` (`npm run build`), es decir regenera
+   `app/dist/` — si no, se empotra un frontend viejo o ninguno;
+2. invoca `cargo build --bins --features tauri/custom-protocol --release`.
+
+La feature va **namespaced** (`tauri/custom-protocol`), así que no hace falta
+declarar ninguna feature propia en `app/src-tauri/Cargo.toml`; no se cambió
+nada de configuración para arreglar esto. Si se quiere reproducir a mano el
+mismo binario, ese es el comando exacto, y hay que correr `npm run build`
+antes.
+
+**Regla práctica:** para la GUI, `cargo build`/`cargo build --release` sirven
+sólo para comprobar que compila. El ejecutable que se entrega o se prueba a
+mano sale siempre de `npm run tauri build`. Un `.exe` de release con fecha
+anterior a la de `app/dist/` es, además, señal de que lleva un frontend
+obsoleto.
+
+**Verificación visual (pendiente desde §9.3.2, ya hecha para el arranque).** Con
+el `.exe` reconstruido por `npm run tauri build -- --no-bundle` se comprobó en
+pantalla: la vista **Calculadora** pinta el teclado dozenal completo, `7−5`
+devuelve `2` con su desglose de puertas (total 39.505, profundidad 441) y entra
+en el historial; la pestaña **Investigación** abre y su visor paso a paso
+responde («3 pasos» para `↋↋↋ + 1`), habilitando los botones de export. Los
+glifos ↊/↋ se renderizan con el fallback tipográfico, así que §8.2 (elegir una
+fuente) sigue abierta.

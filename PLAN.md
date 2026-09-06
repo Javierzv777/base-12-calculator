@@ -135,11 +135,18 @@ Aquí es donde la base 12 justifica su existencia:
 
 - Teclado de 12 dígitos + operadores, más un pad científico generado desde el catálogo del registro de funciones. Sobre los glifos ↊↋: el frontend mide si la fuente los tiene y cae a los alias `X`/`E` si no (queda pendiente empotrar una fuente).
 - Display dozenal, historial, memoria. **Hecho** — ver `app/` y `docs/04-fase6-interfaces.md` §9.
-- **Panel de investigación** (lo que distingue esta app):
+- **Panel de investigación** (lo que distingue esta app): **hecho**, en una
+  pestaña de nivel superior propia («Investigación»), no en la barra lateral.
   - Selector de backend en caliente (MVL / CRT / tabla). **Hecho.**
-  - Contador de puertas de la última operación. **Hecho** (la profundidad todavía no; se mide en pasada aparte, ver `circuits/depth.rs`).
-  - Visor paso a paso del sumador ripple: ver el acarreo propagarse dígito a dígito.
-  - Exportar traza a CSV para el análisis.
+  - Contador de puertas de la última operación. **Hecho**, y desde la Fase 7
+    con **profundidad de circuito de la expresión entera** en la misma pasada
+    y sin alterar el conteo (ver §10bis-C).
+  - Comparación de los tres backends en una sola vista, bajo demanda. **Hecho.**
+  - Visor paso a paso: suma (el acarreo propagándose dígito a dígito), resta
+    (con sus etapas de complemento explícitas) y multiplicación (traza anidada:
+    una fila parcial por dígito del multiplicador, cada una con su propia
+    traza de suma). **Hecho.**
+  - Exportar a CSV con el diálogo nativo «Guardar como». **Hecho.**
 
 ---
 
@@ -196,10 +203,10 @@ Ver `CLAUDE.md` para rutas y comandos.
 | **4. REPL** | `dz-cli` | **Hecha** — `4;6 × 3 = 11;6` |
 | **5. Fraccionarios** | Punto fijo, racionales exactos, DFP | **Hecha** — `1÷3` da `1/3` exacto |
 | **6. GUI** | App Tauri | **Hecha** — `dz-api` + CLI de una invocación + GUI Tauri con teclado dozenal, historial y memoria |
-| **7. Panel investigación** | Conteo de puertas + visor de circuito | Parcial — el conteo por operación ya se muestra en la GUI y en `--gates`; falta el visor paso a paso y el export CSV |
+| **7. Panel investigación** | Conteo de puertas + visor de circuito | **Hecha** — pestaña propia con desglose + profundidad de cualquier expresión, comparación de los tres backends, visor paso a paso de suma/resta/multiplicación y export CSV con diálogo nativo |
 | **8. Extensiones** | Carry-lookahead, multiplicador v2, `DozOp` | **Hecha** — v2, `lookahead_add` y el experimento de rebalanceo cerrados; el registro de funciones (antes `DozOp`) en uso real |
 
-Estado: 108 tests, clippy limpio, lint de pureza con 4 reglas. El DFP se adelantó
+Estado: 141 tests, clippy limpio, lint de pureza con 4 reglas. El DFP se adelantó
 de la Fase 8 a la 5; el multiplicador v2 se adelantó de la 8 a antes de la GUI
 porque su coste bloqueaba los property tests de racionales. Las funciones
 trascendentes, que la §10bis-E daba por fuera de alcance, entraron con la Fase 6
@@ -267,11 +274,31 @@ CORDIC sino sintaxis de llamada y una capa donde poner el análisis numérico.
   `crates/dz-sci`, registradas en `dz-eval` y expuestas solas en las tres
   interfaces por el catálogo del registro. Ver `docs/05-funciones-cientificas.md`.
 
-### C. Panel de investigación (Fase 7) — donde esto deja de ser una calculadora
-- Selector de backend en caliente (`DozGates` ya es un trait, está preparado).
-- Contador de puertas de la última operación (`GateCount` ya existe).
-- Visor paso a paso del ripple-carry: ver el acarreo propagarse dígito a dígito.
-- Export CSV de trazas.
+### C. Panel de investigación (Fase 7) — **hecha**
+Diseño en `docs/05-fase7-panel-investigacion.md`; lo construido y sus
+desviaciones, en su §8.
+
+- Selector de backend en caliente: ya estaba desde la Fase 6.
+- Desglose de puertas **y profundidad** de la última operación, sea cual sea la
+  expresión. Este era el riesgo grande del diseño (§7.1 de ese documento) y se
+  resolvió sin duplicar ninguna orquestación y sin cambiar ninguna firma
+  pública: los circuitos de `dz-gates` ya eran genéricos sobre `GateNet`, y la
+  Fase 7 hizo genéricos también los cuerpos de `dz-int` (`add`/`sub`/`mul`/
+  `div_rem`/`compare`/`is_even`). `Dz` pasó a llevar el nivel al que llegaron
+  sus dígitos y re-entra a los circuitos por `GateNet::lift_at`, así que la
+  profundidad **compone** a través de `dz-num`, `dz-sci` y `dz-eval` sin que
+  esas capas se enteren: no se tocó ni una línea de su lógica. La clave de que
+  esto no contamine nada es que `Levels` invoca al backend exactamente igual
+  que `Values`, con los mismos valores — mismo `GateCount`, mismo flujo.
+- Comparación de los tres backends (siempre los tres) en una vista, con conteo
+  y profundidad por backend, y la etiqueta de que `table` es un oráculo.
+- Visor paso a paso de suma, resta y multiplicación. La traza de la resta es
+  explícita sobre que restar es complementar y sumar; la de la multiplicación
+  es anidada (una fila parcial por dígito del multiplicador, cada una con su
+  traza de suma). Ni división ni `lookahead_add`: la primera no se pidió, la
+  segunda no ejecuta posición a posición y merecería otra visualización.
+- Export CSV con diálogo nativo «Guardar como» (`@tauri-apps/plugin-dialog`);
+  Rust arma **y escribe** el documento, el frontend solo pasa la ruta.
 
 ### D. Deuda conocida, no urgente
 - **DFP:** sin subnormales ni cero con signo. `evaluate_dfp` redondea una vez al
@@ -325,4 +352,12 @@ baja el conteo de puertas de `sin`. Números actuales y limitaciones en
   v2 lo bajó 38×. Cachear más agresivamente es posible, pero cuidado: cachear la
   *semántica* de una operación derivada es exactamente el bug que arregló
   `18565f8`. Cachear resultados sí; importar significado de aritmética nativa no.
-- **Alcance:** resistir meter trascendentes antes de cerrar la Fase 7.
+- ~~**Alcance:** resistir meter trascendentes antes de cerrar la Fase 7.~~ Las
+  trascendentes entraron en la Fase 6 y la Fase 7 se cerró igualmente.
+- **Profundidad y reordenamientos sin puertas:** la medición de profundidad se
+  corta si una capa superior reconstruye un `Dz` dígito a dígito sin pasar por
+  puertas (recortar ceros fraccionarios, mover el punto Humphrey). Los sitios
+  que existen hoy conservan el nivel con `Dz::at_level`; el riesgo es que uno
+  nuevo lo olvide, y el fallo es silencioso y a la baja. Un test de "más
+  operaciones encadenadas => más profundidad" lo detectaría, y hay uno, pero no
+  cubre cada sitio.

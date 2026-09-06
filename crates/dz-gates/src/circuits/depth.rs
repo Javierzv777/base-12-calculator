@@ -69,8 +69,25 @@ pub trait GateNet {
     fn thr(&self, j: u8, x: Self::S) -> Self::S;
     /// Inject a primary input or a constant. Level `0` by definition.
     fn lift(&self, d: Digit) -> Self::S;
+    /// Inject a signal that is already known to arrive at `level`, because
+    /// an earlier circuit in the same evaluation produced it.
+    ///
+    /// This is what makes depth *compose* across a layer boundary: a value
+    /// that came out of one `ripple_add` re-enters the next circuit at the
+    /// level it left the previous one, so the depth of a whole expression
+    /// is the depth of one data-flow graph rather than the sum of
+    /// unrelated per-operation measurements. Instantiations that carry no
+    /// level (`Values`) ignore the argument, hence the default body.
+    fn lift_at(&self, d: Digit, _level: u32) -> Self::S {
+        self.lift(d)
+    }
     /// Recover the dozenal value carried by a signal.
     fn value(s: Self::S) -> Digit;
+    /// Recover the arrival level of a signal. `0` for instantiations that
+    /// do not track depth.
+    fn level(_s: Self::S) -> u32 {
+        0
+    }
 }
 
 /// Value-only instantiation: signals are `Digit`s, every call delegates to
@@ -164,8 +181,14 @@ impl<G: DozGates> GateNet for Levels<'_, G> {
     fn lift(&self, d: Digit) -> Sig {
         Sig { value: d, level: 0 }
     }
+    fn lift_at(&self, d: Digit, level: u32) -> Sig {
+        Sig { value: d, level }
+    }
     fn value(s: Sig) -> Digit {
         s.value
+    }
+    fn level(s: Sig) -> u32 {
+        s.level
     }
 }
 
@@ -179,4 +202,104 @@ pub fn max_level(sigs: &[Sig]) -> u32 {
         }
     }
     best
+}
+
+// ---------------------------------------------------------------------
+// Whole-expression depth tracking (Phase 7).
+//
+// `Levels` measures one circuit whose inputs are primary. A user
+// expression is many circuits chained together across three crates
+// (`dz-int`, `dz-num`, `dz-sci`), and the interesting number is the depth
+// of the *composed* data-flow graph. Threading a `Sig` through every one
+// of those layers would mean making `Dz`, `DzFixed`, `DzRational` and
+// `DzFloat` generic over a signal type -- a change to every public
+// signature in the project.
+//
+// Instead, the layer that owns dozenal values (`dz-int::Dz`) carries the
+// arrival level of its own digits and re-enters each circuit through
+// `GateNet::lift_at`. Everything above `dz-int` composes `Dz` operations
+// and therefore propagates depth without knowing that depth exists. What
+// stays here, at Layer 0, is the switch and the high-water mark: they are
+// circuit instrumentation, the same category as `GateCount`, and putting
+// them here keeps `dz-int` free of a second notion of "am I being
+// measured".
+//
+// Cost invariance is the point of the design: `Levels` invokes the
+// backend exactly once per primitive, exactly as `Values` does, and its
+// values are identical, so control flow is identical too. Turning
+// tracking on therefore cannot change a measured `GateCount` -- only the
+// u32 bookkeeping alongside it. Tests pin this.
+// ---------------------------------------------------------------------
+
+use std::cell::Cell;
+
+thread_local! {
+    /// `None` when depth tracking is off (the default, and what every
+    /// non-instrumented caller sees); `Some(high_water)` while a
+    /// `DepthScope` is alive.
+    static DEPTH_STATE: Cell<Option<u32>> = const { Cell::new(None) };
+}
+
+/// Whether the current thread is inside a `DepthScope`.
+///
+/// Layers that own dozenal values check this to decide which `GateNet`
+/// instantiation to run. Both answers compute the same values and invoke
+/// the backend the same number of times.
+pub fn depth_tracking() -> bool {
+    DEPTH_STATE.with(|state| state.get().is_some())
+}
+
+/// Report that a circuit produced an output arriving at `level`.
+///
+/// A no-op when tracking is off. Otherwise the running maximum is raised,
+/// so the final figure is the longest chain of primitive invocations
+/// anywhere in the evaluation -- including intermediates, which is what
+/// "depth of the circuit that computed this" means for a DAG whose
+/// outputs are consumed by later circuits.
+pub fn record_level(level: u32) {
+    DEPTH_STATE.with(|state| {
+        if let Some(high_water) = state.get() {
+            if level > high_water {
+                state.set(Some(level));
+            }
+        }
+    });
+}
+
+/// RAII switch enabling whole-expression depth tracking for this thread.
+///
+/// Nested scopes are allowed: an inner scope starts its own high-water
+/// mark and, on `finish`, the previous scope's mark is restored (raised to
+/// at least the inner one, since an inner circuit is part of the outer
+/// one).
+pub struct DepthScope {
+    previous: Option<u32>,
+}
+
+impl DepthScope {
+    /// Turn tracking on, remembering whatever state was already in effect.
+    pub fn enter() -> DepthScope {
+        let previous = DEPTH_STATE.with(|state| state.replace(Some(0)));
+        DepthScope { previous }
+    }
+
+    /// The depth measured so far in this scope.
+    pub fn measured(&self) -> u32 {
+        DEPTH_STATE.with(|state| state.get().unwrap_or(0))
+    }
+}
+
+impl Drop for DepthScope {
+    /// Restoring on `Drop` rather than in an explicit `finish` matters:
+    /// `dz-api` returns early with `?` on an evaluation error, and a scope
+    /// that leaked would leave the whole thread measuring depth forever.
+    fn drop(&mut self) {
+        let measured = self.measured();
+        let restored = match self.previous {
+            Some(outer) if outer >= measured => Some(outer),
+            Some(_) => Some(measured),
+            None => None,
+        };
+        DEPTH_STATE.with(|state| state.set(restored));
+    }
 }

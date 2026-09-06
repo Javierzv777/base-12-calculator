@@ -43,7 +43,10 @@ pub(crate) fn trim(m: Dz, scale: usize) -> (Dz, usize) {
         s -= 1;
     }
     let negative = m.sign() == Sign::Neg;
-    (Dz::from_magnitude(negative, digits), s)
+    // Rewiring, not computing: trimming fractional zeros invokes no gate,
+    // so it must not reset how deep the digits it moves already were
+    // (see `Dz::at_level`).
+    (Dz::from_magnitude(negative, digits).at_level(m.level()), s)
 }
 
 impl DzFixed {
@@ -201,7 +204,10 @@ impl DzFixed {
             vec![Digit::ZERO]
         };
         DzFixed {
-            magnitude: Dz::from_magnitude(self.is_negative(), kept),
+            // `Vec` slicing invokes no gate; keep the depth chain (see
+            // `Dz::at_level`).
+            magnitude: Dz::from_magnitude(self.is_negative(), kept)
+                .at_level(self.magnitude.level()),
             scale: 0,
         }
     }

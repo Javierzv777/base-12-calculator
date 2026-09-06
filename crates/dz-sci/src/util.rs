@@ -75,7 +75,8 @@ pub fn truncate(v: &DzFixed, scale: usize) -> DzFixed {
         vec![Digit::ZERO]
     };
     DzFixed {
-        magnitude: Dz::from_magnitude(v.is_negative(), kept),
+        // Slicing invokes no gate; keep the depth chain (`Dz::at_level`).
+        magnitude: Dz::from_magnitude(v.is_negative(), kept).at_level(v.magnitude.level()),
         scale,
     }
 }

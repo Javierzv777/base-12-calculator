@@ -1,0 +1,276 @@
+//! Phase 7: the IPC surface of the research panel.
+//!
+//! Same discipline as `commands`: no dozenal logic lives here. Traces
+//! arrive from `dz-api` already resolved to display characters, and a CSV
+//! arrives as a finished document. The frontend animates and saves; it
+//! never recomputes.
+
+use crate::commands::{gate_count_dto, GateCountDto, OperationDto};
+use crate::state::AppState;
+use dz_api::{BackendCost, Trace, TraceKind, TraceRequest};
+use serde::Serialize;
+use tauri::State;
+
+#[derive(Clone, Debug, Serialize)]
+pub struct TraceStepDto {
+    pub position: usize,
+    pub a: String,
+    pub b: String,
+    pub carry_in: String,
+    pub sum: String,
+    pub carry_out: String,
+}
+
+fn step_dtos(steps: &[dz_api::TraceStep]) -> Vec<TraceStepDto> {
+    steps
+        .iter()
+        .map(|s| TraceStepDto {
+            position: s.position,
+            a: s.a.to_string(),
+            b: s.b.to_string(),
+            carry_in: s.carry_in.to_string(),
+            sum: s.sum.to_string(),
+            carry_out: s.carry_out.to_string(),
+        })
+        .collect()
+}
+
+/// One partial row of a multiplication, with its own nested addition
+/// trace: what the viewer renders as "multiplying by digit N gives partial
+/// row X; accumulating it runs [these steps]".
+#[derive(Clone, Debug, Serialize)]
+pub struct MulRowDto {
+    pub index: usize,
+    pub multiplier_digit: String,
+    pub row: String,
+    pub shifted: String,
+    pub accumulate_steps: Vec<TraceStepDto>,
+    pub accumulated: String,
+}
+
+/// Mirrors `dz_api::Trace`, tagged by `kind`.
+///
+/// The three shapes are genuinely different -- a subtraction has
+/// complement stages, a multiplication has nested rows -- so they stay
+/// three variants. Flattening them into one bag of optional fields would
+/// only move the switch into the renderer and lose the guarantee that a
+/// subtraction always carries its complement stages.
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum TraceDto {
+    Add {
+        a: String,
+        b: String,
+        steps: Vec<TraceStepDto>,
+        result: String,
+    },
+    Sub {
+        a: String,
+        b: String,
+        ones_complement: String,
+        complement_steps: Vec<TraceStepDto>,
+        radix_complement: String,
+        add_steps: Vec<TraceStepDto>,
+        raw_sum: String,
+        borrowed: bool,
+        decode_ones_complement: String,
+        decode_steps: Vec<TraceStepDto>,
+        result: String,
+    },
+    Mul {
+        a: String,
+        b: String,
+        rows: Vec<MulRowDto>,
+        result: String,
+    },
+}
+
+impl TraceDto {
+    fn from_trace(trace: &Trace) -> TraceDto {
+        match trace {
+            Trace::Add(t) => TraceDto::Add {
+                a: t.a.clone(),
+                b: t.b.clone(),
+                steps: step_dtos(&t.steps),
+                result: t.result.clone(),
+            },
+            Trace::Sub(t) => TraceDto::Sub {
+                a: t.a.clone(),
+                b: t.b.clone(),
+                ones_complement: t.ones_complement.clone(),
+                complement_steps: step_dtos(&t.complement_steps),
+                radix_complement: t.radix_complement.clone(),
+                add_steps: step_dtos(&t.add_steps),
+                raw_sum: t.raw_sum.clone(),
+                borrowed: t.borrowed,
+                decode_ones_complement: t.decode_ones_complement.clone(),
+                decode_steps: step_dtos(&t.decode_steps),
+                result: t.result.clone(),
+            },
+            Trace::Mul(t) => TraceDto::Mul {
+                a: t.a.clone(),
+                b: t.b.clone(),
+                rows: t
+                    .rows
+                    .iter()
+                    .map(|r| MulRowDto {
+                        index: r.index,
+                        multiplier_digit: r.multiplier_digit.to_string(),
+                        row: r.row.clone(),
+                        shifted: r.shifted.clone(),
+                        accumulate_steps: step_dtos(&r.accumulate_steps),
+                        accumulated: r.accumulated.clone(),
+                    })
+                    .collect(),
+                result: t.result.clone(),
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BackendCostDto {
+    pub backend: String,
+    pub gate_count: GateCountDto,
+    pub depth: u32,
+    /// Internal-representation -> tag reconstructions. Zero for MVL and
+    /// for the oracle; the only column that separates the backends, since
+    /// the five primitive counters are equal by construction
+    /// (`docs/02-crt-vs-mvl.md`).
+    pub reconstruction_ops: u64,
+    /// True only for the table oracle. The panel labels it, so nobody
+    /// reads "table wins" as a research result: it indexes memory instead
+    /// of composing gates (`docs/01-diseno-sumador.md`).
+    pub oracle: bool,
+}
+
+/// The verdict as Rust wrote it. The frontend renders these strings and
+/// composes none of them: one authority for the reading of the table, so
+/// the panel and the terminal say the same thing.
+#[derive(Clone, Debug, Serialize)]
+pub struct VerdictDto {
+    pub winner: String,
+    pub decided_by_reconstructions: bool,
+    pub model: String,
+    pub summary: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ComparisonDto {
+    pub display: String,
+    pub costs: Vec<BackendCostDto>,
+    pub verdict: Option<VerdictDto>,
+}
+
+fn cost_dtos(costs: &[BackendCost]) -> Vec<BackendCostDto> {
+    costs
+        .iter()
+        .map(|c| BackendCostDto {
+            backend: c.backend.label().to_string(),
+            gate_count: gate_count_dto(&c.gate_count),
+            depth: c.depth,
+            reconstruction_ops: c.reconstruction_ops,
+            oracle: c.is_oracle(),
+        })
+        .collect()
+}
+
+/// Run one circuit step by step.
+///
+/// Independent of the session's display mode: a trace is over integer
+/// digit positions, not over how a final value is rendered. It does honour
+/// the session's backend, since "which backend am I watching" is exactly
+/// the question the panel exists to ask.
+#[tauri::command]
+pub fn trace_operation(
+    state: State<AppState>,
+    kind: String,
+    a: String,
+    b: String,
+) -> Result<TraceDto, String> {
+    let kind = TraceKind::parse(&kind).ok_or(format!("unknown trace kind '{}'", kind))?;
+    let backend = {
+        let session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+        session.backend
+    };
+    let trace = dz_api::trace(&TraceRequest { backend, kind, a, b }).map_err(|e| e.to_string())?;
+    let dto = TraceDto::from_trace(&trace);
+    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    session.last_trace = Some(trace);
+    Ok(dto)
+}
+
+/// Run one operation on all three backends at once.
+///
+/// On demand, never on every keystroke: two thirds of that work is thrown
+/// away whenever the user only wanted the answer.
+#[tauri::command]
+pub fn compare_backends(state: State<AppState>, op: OperationDto) -> Result<ComparisonDto, String> {
+    let (mode, scale) = {
+        let session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+        (session.mode, session.scale)
+    };
+    let comparison =
+        dz_api::compare_backends(&op.into_operation(), mode, scale).map_err(|e| e.to_string())?;
+    let dto = ComparisonDto {
+        display: comparison.display.clone(),
+        costs: cost_dtos(&comparison.costs),
+        verdict: comparison.verdict.as_ref().map(|v| VerdictDto {
+            winner: v.winner.label().to_string(),
+            decided_by_reconstructions: v.decided_by_reconstructions,
+            model: v.model.clone(),
+            summary: v.summary.clone(),
+        }),
+    };
+    let mut session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+    session.last_comparison = Some(comparison.costs);
+    Ok(dto)
+}
+
+/// Write one of the panel's tables to `path` as CSV.
+///
+/// The frontend picks the path with the native Save-as dialog
+/// (`@tauri-apps/plugin-dialog`) and passes it here; the document itself is
+/// built by `dz-api` and written by this command. The CSV text never
+/// reaches JavaScript, so nobody can "fix a comma" there while Rust thinks
+/// the format is something else -- the same single-authority rule the rest
+/// of the project applies to formatting.
+///
+/// The chosen path is registered with the filesystem plugin's scope, so
+/// the capability the app declares matches what the user actually granted
+/// by picking that file.
+#[tauri::command]
+pub fn export_csv(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    what: String,
+    path: String,
+) -> Result<String, String> {
+    let csv = {
+        let session = state.0.lock().map_err(|_| "session lock poisoned".to_string())?;
+        match what.as_str() {
+            "gates" => {
+                let costs = session
+                    .last_comparison
+                    .as_ref()
+                    .ok_or("run a backend comparison first")?;
+                dz_api::gate_count_csv(costs)
+            }
+            "trace" => {
+                let trace = session.last_trace.as_ref().ok_or("run a trace first")?;
+                dz_api::trace_csv(trace)
+            }
+            "trace-summary" => {
+                let trace = session.last_trace.as_ref().ok_or("run a trace first")?;
+                dz_api::trace_summary_csv(trace)
+            }
+            other => return Err(format!("unknown export '{}'", other)),
+        }
+    };
+
+    use tauri_plugin_fs::FsExt;
+    let target = std::path::PathBuf::from(&path);
+    let _ = app.fs_scope().allow_file(&target);
+    std::fs::write(&target, csv).map_err(|e| format!("could not write {}: {}", path, e))?;
+    Ok(path)
+}

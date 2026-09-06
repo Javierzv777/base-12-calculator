@@ -19,8 +19,21 @@
 //!     crosses this boundary invites arithmetic on the other side, which
 //!     is the purity rule applied to a process (or language) boundary.
 
+pub mod research;
+
+pub use research::{
+    compare_backends, comparison_json_line, gate_count_csv, trace, trace_csv, trace_json_line,
+    trace_measured, trace_summary_csv, verdict, AddTrace, BackendComparison, BackendCost, MulRow,
+    MulTrace, SubTrace, Trace, TraceKind, TraceRequest, TraceStep, Verdict,
+};
+
 use dz_eval::{EvalConfig, EvalError, FnInfo};
-use dz_gates::{CrtGates, DozGates, GateCount, MvlGates, TableGates};
+use dz_gates::circuits::DepthScope;
+use dz_gates::{CrtGates, DozGates, MvlGates, TableGates};
+
+/// Re-exported so consumers can name the type in `Response.gate_count`
+/// without depending on Layer 0 themselves.
+pub use dz_gates::GateCount;
 use dz_parse::{format_dfp, format_fixed, format_rational, parse_str, Expr, ExprParseError};
 
 /// Which of the three `DozGates` backends a single call uses.
@@ -170,6 +183,29 @@ pub struct Response {
     /// for the Phase 7 research panel; `None` when the operation failed
     /// before any gate ran (a parse error).
     pub gate_count: Option<GateCount>,
+    /// Circuit depth of the same run: the longest chain of primitive
+    /// invocations from a primary input to any output, across the *whole*
+    /// expression rather than one isolated circuit.
+    ///
+    /// Measured in the same pass as `gate_count` and without changing it:
+    /// the depth-carrying instantiation invokes the backend once per
+    /// primitive, exactly as the plain one does. See
+    /// `dz_gates::circuits::depth` for the model and `dz_int::dzint` for
+    /// how a `Dz` carries its own arrival level, which is what makes depth
+    /// compose across `dz-num`/`dz-sci` without those crates knowing.
+    pub depth: Option<u32>,
+    /// Backend-specific overhead the five primitive counters cannot see:
+    /// full internal-representation -> tag reconstructions
+    /// (`DozGates::reconstruction_ops`). `0` for MVL and for the table
+    /// oracle -- that is the truth, not a missing measurement -- and
+    /// non-zero only for CRT, whose every order comparison rebuilds the
+    /// digit from its residues (`docs/02-crt-vs-mvl.md`).
+    ///
+    /// A sibling field rather than a sixth `GateCount` counter, on
+    /// purpose: `GateCount` is what stays equal across backends by
+    /// construction, and this is what explains why equal counters are not
+    /// equal cost.
+    pub reconstruction_ops: Option<u64>,
 }
 
 /// Structured errors -- never a bare string -- so a GUI can style them and
@@ -178,6 +214,9 @@ pub struct Response {
 pub enum ApiError {
     Parse(ExprParseError),
     Eval(EvalError),
+    /// A research-panel request that is well-formed text but not something
+    /// a single circuit run can represent (see `research::trace`).
+    Trace(String),
 }
 
 impl std::fmt::Display for ApiError {
@@ -185,6 +224,7 @@ impl std::fmt::Display for ApiError {
         match self {
             ApiError::Parse(e) => write!(f, "{}", e),
             ApiError::Eval(e) => write!(f, "{}", e),
+            ApiError::Trace(message) => write!(f, "{}", message),
         }
     }
 }
@@ -262,6 +302,13 @@ fn execute_with<G: DozGates>(g: &G, req: &Request) -> Result<Response, ApiError>
     // Everything before this point is text handling; the measurement
     // starts here so a caller reading `gate_count` sees the cost of the
     // arithmetic, not of parsing.
+    //
+    // Depth is measured in the *same* pass, not a second one. The
+    // depth-carrying instantiation of the circuits invokes the backend
+    // once per primitive with the same values, so `GateCount` and control
+    // flow are bit-identical to a run with tracking off; only `u32`
+    // bookkeeping rides alongside. `dz-api/tests/depth.rs` pins that.
+    let scope = DepthScope::enter();
     g.reset_cost();
 
     let (display, periodic_note, approximate) = match req.mode {
@@ -312,6 +359,8 @@ fn execute_with<G: DozGates>(g: &G, req: &Request) -> Result<Response, ApiError>
         periodic_note,
         approximate,
         gate_count: Some(g.cost()),
+        depth: Some(scope.measured()),
+        reconstruction_ops: Some(g.reconstruction_ops()),
     })
 }
 
@@ -329,7 +378,7 @@ pub fn to_ascii(text: &str) -> String {
         .collect()
 }
 
-fn escape_json(text: &str) -> String {
+pub(crate) fn escape_json(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
@@ -344,7 +393,7 @@ fn escape_json(text: &str) -> String {
     out
 }
 
-fn gate_count_json(count: &GateCount) -> String {
+pub(crate) fn gate_count_json(count: &GateCount) -> String {
     format!(
         "{{\"cycle\":{},\"min\":{},\"max\":{},\"lit\":{},\"thr\":{},\"total\":{}}}",
         count.cycle,
@@ -367,12 +416,22 @@ pub fn to_json_line(response: &Response) -> String {
         Some(count) => gate_count_json(count),
         None => "null".to_string(),
     };
+    let depth = match response.depth {
+        Some(levels) => levels.to_string(),
+        None => "null".to_string(),
+    };
+    let reconstructions = match response.reconstruction_ops {
+        Some(ops) => ops.to_string(),
+        None => "null".to_string(),
+    };
     format!(
-        "{{\"ok\":true,\"display\":\"{}\",\"periodic_note\":{},\"approximate\":{},\"gate_count\":{}}}",
+        "{{\"ok\":true,\"display\":\"{}\",\"periodic_note\":{},\"approximate\":{},\"gate_count\":{},\"depth\":{},\"reconstruction_ops\":{}}}",
         escape_json(&response.display),
         response.periodic_note,
         response.approximate,
-        gates
+        gates,
+        depth,
+        reconstructions
     )
 }
 

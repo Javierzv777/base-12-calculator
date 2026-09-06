@@ -37,6 +37,13 @@ impl DozGates for DynGates<'_> {
     fn cost(&self) -> GateCount {
         self.0.cost()
     }
+    /// Forwarded like every other counter: taking the trait default here
+    /// would silently report zero reconstructions for a borrowed
+    /// `CrtGates`, which is exactly the number this adapter must not
+    /// invent.
+    fn reconstruction_ops(&self) -> u64 {
+        self.0.reconstruction_ops()
+    }
     fn reset_cost(&self) {
         self.0.reset_cost()
     }

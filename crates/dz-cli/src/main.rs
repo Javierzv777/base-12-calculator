@@ -17,8 +17,10 @@
 //! without touching this file.
 
 use dz_api::{
-    error_json_line, execute, functions, to_ascii, to_json_line, ApiError, BackendKind, NumberMode,
-    Operation, Request, Response,
+    compare_backends, comparison_json_line, error_json_line, execute, functions, gate_count_csv,
+    to_ascii, to_json_line, trace_csv, trace_json_line, trace_measured, trace_summary_csv,
+    ApiError, BackendComparison, BackendKind, GateCount, NumberMode, Operation, Request, Response,
+    Trace, TraceKind, TraceRequest,
 };
 use std::io::{self, BufRead, Write};
 
@@ -46,14 +48,26 @@ fn plain_output(response: &Response, mode: NumberMode, unicode: bool) -> String 
 
 fn gate_line(response: &Response) -> Option<String> {
     response.gate_count.as_ref().map(|count| {
+        // Depth rides along on the same line: it is measured in the same
+        // pass as the counters (Phase 7) and reading one without the other
+        // is how "cheaper" gets confused with "shallower".
+        let depth = match response.depth {
+            Some(levels) => levels.to_string(),
+            None => "?".to_string(),
+        };
+        // `recon` is the backend-specific overhead the five counters
+        // cannot see: 0 on MVL and on the table oracle, non-zero only on
+        // CRT (`docs/02-crt-vs-mvl.md`).
         format!(
-            "gates: cycle={} min={} max={} lit={} thr={} total={}",
+            "gates: cycle={} min={} max={} lit={} thr={} total={} depth={} recon={}",
             count.cycle,
             count.min,
             count.max,
             count.lit,
             count.thr,
-            count.total()
+            count.total(),
+            depth,
+            response.reconstruction_ops.unwrap_or(0)
         )
     })
 }
@@ -86,6 +100,24 @@ fn function_listing() -> String {
 
 // -------------------------------------------------------------- one-shot
 
+/// Which of the two CSV documents `--csv`/`--csv-summary` asks for.
+///
+/// Two documents, not one overloaded schema: `trace_csv` is the step
+/// table and `trace_summary_csv` is the context above it
+/// (`docs/05-fase7-panel-investigacion.md`, 8.4).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CsvDocument {
+    Steps,
+    Summary,
+}
+
+/// A CSV request: which document, and where it goes. `None` is stdout,
+/// which is what a pipe or an agent wants.
+struct CsvTarget {
+    document: CsvDocument,
+    path: Option<String>,
+}
+
 struct Flags {
     mode: NumberMode,
     backend: BackendKind,
@@ -93,6 +125,7 @@ struct Flags {
     json: bool,
     unicode: bool,
     gates: bool,
+    csv: Option<CsvTarget>,
 }
 
 impl Default for Flags {
@@ -104,6 +137,7 @@ impl Default for Flags {
             json: false,
             unicode: false,
             gates: false,
+            csv: None,
         }
     }
 }
@@ -120,6 +154,10 @@ fn print_usage() {
     println!("  neg a          eval \"<expression>\"");
     println!("  <function> <args...>   any registered function, e.g. 'dz-cli sin 1'");
     println!();
+    println!("Research:");
+    println!("  trace add|sub|mul a b       step-by-step circuit run (integers only)");
+    println!("  compare <operation> <args>  the same call on all three gate backends");
+    println!();
     println!("Flags:");
     println!("  --mode rational|fixed|dfp   display mode (default: rational)");
     println!("  --backend mvl|crt|table     gate backend (default: mvl)");
@@ -128,7 +166,14 @@ fn print_usage() {
     println!("  --unicode                   dozenal glyphs instead of the X/E aliases");
     println!("  --gates                     also print the gate count of the call");
     println!("  --functions                 list the callable functions and constants");
+    println!("  --csv[=<path>]              CSV instead of text: the step table of a");
+    println!("                              'trace', the gate table of a 'compare';");
+    println!("                              no path means stdout");
+    println!("  --csv-summary[=<path>]      the other trace document: operands, partial");
+    println!("                              rows and result ('trace' only)");
     println!("  --help, -h                  this text");
+    println!();
+    println!("REPL session commands: :mem  :mem+  :memc  :history  :clear  :session");
     println!();
     println!("Notes:");
     println!("  Digits are 0-9 plus X (ten) and E (eleven); ';' is the Humphrey point,");
@@ -146,6 +191,29 @@ fn split_arguments(args: &[String]) -> Result<(Vec<String>, Flags), String> {
     while i < args.len() {
         let argument = args[i].clone();
         if let Some(name) = argument.strip_prefix("--") {
+            // `--csv` and `--csv-summary` take an *optional* path. It is
+            // spelled `--csv=out.csv` rather than `--csv out.csv` because
+            // the operands are positional too: `trace add EEE 1 --csv 5`
+            // would otherwise be ambiguous between a path and an operand.
+            let (name, attached) = match name.split_once('=') {
+                Some((head, value)) => (head, Some(value.to_string())),
+                None => (name, None),
+            };
+            if name == "csv" || name == "csv-summary" {
+                flags.csv = Some(CsvTarget {
+                    document: if name == "csv" {
+                        CsvDocument::Steps
+                    } else {
+                        CsvDocument::Summary
+                    },
+                    path: attached,
+                });
+                i += 1;
+                continue;
+            }
+            if attached.is_some() {
+                return Err(format!("'--{}' does not take an attached value", name));
+            }
             match name {
                 "json" => flags.json = true,
                 "unicode" => flags.unicode = true,
@@ -246,6 +314,19 @@ fn build_operation(positional: &[String]) -> Result<Operation, String> {
             binary(1)?;
             Ok(Operation::Eval { expr: rest[0].clone() })
         }
+        // Reserved names. `trace` and `compare` are top-level commands
+        // (see `Command`), not operations, and the `other` arm below
+        // turns *any* registered function name into a subcommand. Naming
+        // them here explicitly means that registering a function called
+        // `trace` or `compare` in `dz-eval` cannot silently shadow, or be
+        // shadowed by, the research subcommands: the clash is reported
+        // instead of being decided by the order of this `match`
+        // (`docs/06-fase9-paridad-cli.md`, section 7).
+        "trace" | "compare" => Err(format!(
+            "'{0}' is a top-level command, not an operation: write \
+             'dz-cli {0} ...' (see 'dz-cli --help')",
+            name
+        )),
         other => {
             // Any registered function is also a subcommand: `dz-cli sin 1`.
             // The catalog decides, so a new function needs no change here.
@@ -264,6 +345,312 @@ fn build_operation(positional: &[String]) -> Result<Operation, String> {
             Ok(Operation::Call { name: other.to_string(), args: rest.to_vec() })
         }
     }
+}
+
+/// What one invocation asks for.
+///
+/// `Calc` is the path that has existed since Phase 6: build a
+/// `dz_api::Operation` and call `execute`. The other two are the research
+/// surface of `dz-api`, which has its own request and response shapes and
+/// therefore cannot be an `Operation` (`docs/06-fase9-paridad-cli.md`,
+/// section 2).
+enum Command {
+    Calc(Operation),
+    Trace {
+        kind: TraceKind,
+        a: String,
+        b: String,
+    },
+    Compare(Operation),
+}
+
+fn trace_kind_error(name: &str) -> String {
+    if name == "div" {
+        // The honesty the research panel already carries travels to the
+        // terminal: say why there is no such trace, not "unknown".
+        "there is no division trace: restoring division has no single carry that advances \
+         position by position, so a step viewer for it would be showing something that does \
+         not run. Traceable circuits: add, sub, mul"
+            .to_string()
+    } else {
+        format!(
+            "unknown trace kind '{}': the traceable circuits are add, sub and mul",
+            name
+        )
+    }
+}
+
+fn build_command(positional: &[String]) -> Result<Command, String> {
+    match positional[0].as_str() {
+        "trace" => {
+            let rest = &positional[1..];
+            if rest.len() != 3 {
+                return Err(format!(
+                    "'trace' takes <add|sub|mul> <a> <b>, got {} argument(s)",
+                    rest.len()
+                ));
+            }
+            // `TraceKind::parse` is `dz-api`'s, so the CLI invents no
+            // names of its own -- same discipline as `BackendKind::parse`.
+            let kind = TraceKind::parse(&rest[0]).ok_or_else(|| trace_kind_error(&rest[0]))?;
+            Ok(Command::Trace {
+                kind,
+                a: rest[1].clone(),
+                b: rest[2].clone(),
+            })
+        }
+        "compare" => {
+            let rest = &positional[1..];
+            if rest.is_empty() {
+                return Err(
+                    "'compare' takes an operation and its arguments, e.g. 'compare mul 25 34'"
+                        .to_string(),
+                );
+            }
+            Ok(Command::Compare(build_operation(rest)?))
+        }
+        _ => Ok(Command::Calc(build_operation(positional)?)),
+    }
+}
+
+// ------------------------------------------------- research rendering
+
+fn step_table(steps: &[dz_api::TraceStep], indent: &str) -> String {
+    let mut out = format!("{}pos  a  b  cin  sum  cout\n", indent);
+    for step in steps {
+        out.push_str(&format!(
+            "{}{:>3}  {}  {}   {}    {}     {}\n",
+            indent, step.position, step.a, step.b, step.carry_in, step.sum, step.carry_out
+        ));
+    }
+    out
+}
+
+/// The plain-text rendering of a trace: one row per digit position, least
+/// significant first, exactly the order the GUI viewer steps through.
+fn render_trace(trace: &Trace) -> String {
+    let mut out = String::new();
+    match trace {
+        Trace::Add(t) => {
+            out.push_str(&format!(
+                "trace: add  {} + {} = {}\n",
+                t.a, t.b, t.result
+            ));
+            out.push_str(&step_table(&t.steps, "  "));
+        }
+        Trace::Sub(t) => {
+            // Five labelled stages, because there is no subtractor: the
+            // complement strategy is what actually runs (docs/05, 8.3).
+            out.push_str(&format!(
+                "trace: sub  {} - {} = {}\n",
+                t.a, t.b, t.result
+            ));
+            out.push_str("  (there is no subtractor circuit: this is the twelve's-complement strategy)\n");
+            out.push_str(&format!(
+                "  stage 1  elevens' complement of b = {}\n",
+                t.ones_complement
+            ));
+            out.push_str("  stage 2  add 1 to it:\n");
+            out.push_str(&step_table(&t.complement_steps, "    "));
+            out.push_str(&format!(
+                "  stage 2  twelve's complement of b = {}\n",
+                t.radix_complement
+            ));
+            out.push_str("  stage 3  a + twelve's complement of b:\n");
+            out.push_str(&step_table(&t.add_steps, "    "));
+            out.push_str(&format!("  stage 3  raw sum = {}\n", t.raw_sum));
+            if t.borrowed {
+                out.push_str("  borrowed: yes (a < b, so the raw sum is decoded)\n");
+                out.push_str(&format!(
+                    "  stage 4  elevens' complement of the raw sum = {}\n",
+                    t.decode_ones_complement
+                ));
+                out.push_str("  stage 5  add 1 to it:\n");
+                out.push_str(&step_table(&t.decode_steps, "    "));
+            } else {
+                out.push_str("  borrowed: no (a >= b, the raw sum is the answer)\n");
+            }
+        }
+        Trace::Mul(t) => {
+            out.push_str(&format!(
+                "trace: mul  {} * {} = {}\n",
+                t.a, t.b, t.result
+            ));
+            for row in &t.rows {
+                out.push_str(&format!(
+                    "  row {}  multiplier digit {}  partial {}  shifted {}\n",
+                    row.index, row.multiplier_digit, row.row, row.shifted
+                ));
+                out.push_str(&step_table(&row.accumulate_steps, "    "));
+                out.push_str(&format!("    accumulated = {}\n", row.accumulated));
+            }
+        }
+    }
+    out.push_str(&format!("result: {}\n", trace.result()));
+    out
+}
+
+/// The three-backend table. `table` is labelled as the oracle for the
+/// same reason the panel labels it (`docs/05`, section 5): without that
+/// line the table invites reading "table wins" as a research result.
+fn render_comparison(comparison: &BackendComparison) -> String {
+    let mut out = format!("result: {}\n", comparison.display);
+    out.push_str(
+        "  backend     cycle      min      max      lit      thr      total    depth    recon\n",
+    );
+    for cost in &comparison.costs {
+        let count = &cost.gate_count;
+        out.push_str(&format!(
+            "  {:<8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>10} {:>8} {:>8}\n",
+            cost.backend.label(),
+            count.cycle,
+            count.min,
+            count.max,
+            count.lit,
+            count.thr,
+            count.total(),
+            cost.depth,
+            cost.reconstruction_ops
+        ));
+    }
+    out.push_str("  (table is the truth-table oracle, not a production backend)\n");
+    // The verdict is written by `dz-api`, never here: the GUI prints the
+    // same sentence, and one authority is what keeps the two interfaces
+    // from drifting (`docs/06-fase9-paridad-cli.md`, section 7).
+    if let Some(v) = &comparison.verdict {
+        out.push_str(&wrap_verdict(&v.summary));
+    }
+    out
+}
+
+/// Soft-wrap the verdict prose at 78 columns so a terminal shows it as a
+/// paragraph rather than one very long line. Pure text layout: it splits
+/// on spaces and never touches a dozenal value.
+fn wrap_verdict(summary: &str) -> String {
+    const WIDTH: usize = 76;
+    let mut out = String::new();
+    let mut line = String::from("  ");
+    for word in summary.split_whitespace() {
+        if line.chars().count() + word.chars().count() + 1 > WIDTH && !line.trim().is_empty() {
+            out.push_str(line.trim_end());
+            out.push('\n');
+            line = String::from("  ");
+        }
+        if !line.trim().is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.trim().is_empty() {
+        out.push_str(line.trim_end());
+        out.push('\n');
+    }
+    out
+}
+
+/// The gate line of a trace. A trace has counters but no depth: the
+/// traced circuits run the plain instantiation, which carries no arrival
+/// levels (`dz_api::research::trace_measured`).
+fn trace_gate_line(count: &GateCount) -> String {
+    format!(
+        "gates: cycle={} min={} max={} lit={} thr={} total={} depth=n/a (traced pass)",
+        count.cycle,
+        count.min,
+        count.max,
+        count.lit,
+        count.thr,
+        count.total()
+    )
+}
+
+/// Write a CSV document exactly as `dz-api` produced it. The CLI never
+/// reformats it -- one formatting authority is what keeps the terminal and
+/// the GUI from drifting apart (`docs/06`, section 7).
+fn emit_csv(document: &str, path: &Option<String>) -> i32 {
+    match path {
+        None => {
+            print!("{}", document);
+            0
+        }
+        Some(path) => match std::fs::write(path, document) {
+            Ok(()) => {
+                println!("wrote {}", path);
+                0
+            }
+            Err(e) => {
+                eprintln!("error: could not write '{}': {}", path, e);
+                ERROR_EXIT
+            }
+        },
+    }
+}
+
+fn run_trace(kind: TraceKind, a: &str, b: &str, flags: &Flags) -> i32 {
+    let request = TraceRequest {
+        backend: flags.backend,
+        kind,
+        a: a.to_string(),
+        b: b.to_string(),
+    };
+    let (trace, count) = match trace_measured(&request) {
+        Ok(pair) => pair,
+        Err(error) => {
+            if flags.json {
+                println!("{}", error_json_line(&error));
+            } else {
+                eprintln!("error: {}", error);
+            }
+            return report_exit_code(&error);
+        }
+    };
+    if let Some(target) = &flags.csv {
+        let document = match target.document {
+            CsvDocument::Steps => trace_csv(&trace),
+            CsvDocument::Summary => trace_summary_csv(&trace),
+        };
+        return emit_csv(&document, &target.path);
+    }
+    if flags.json {
+        println!("{}", trace_json_line(&trace));
+        return 0;
+    }
+    let text = render_trace(&trace);
+    print!("{}", if flags.unicode { text } else { to_ascii(&text) });
+    if flags.gates {
+        println!("{}", trace_gate_line(&count));
+    }
+    0
+}
+
+fn run_compare(op: &Operation, flags: &Flags) -> i32 {
+    if let Some(target) = &flags.csv {
+        if target.document == CsvDocument::Summary {
+            eprintln!("usage error: '--csv-summary' is a trace document; 'compare' emits '--csv'");
+            eprintln!("try 'dz-cli --help'");
+            return USAGE_EXIT;
+        }
+    }
+    let comparison = match compare_backends(op, flags.mode, flags.scale) {
+        Ok(comparison) => comparison,
+        Err(error) => {
+            if flags.json {
+                println!("{}", error_json_line(&error));
+            } else {
+                eprintln!("error: {}", error);
+            }
+            return report_exit_code(&error);
+        }
+    };
+    if let Some(target) = &flags.csv {
+        return emit_csv(&gate_count_csv(&comparison.costs), &target.path);
+    }
+    if flags.json {
+        println!("{}", comparison_json_line(&comparison));
+        return 0;
+    }
+    let text = render_comparison(&comparison);
+    print!("{}", if flags.unicode { text } else { to_ascii(&text) });
+    0
 }
 
 fn run_command(args: &[String]) -> i32 {
@@ -289,15 +676,27 @@ fn run_command(args: &[String]) -> i32 {
         eprintln!("try 'dz-cli --help'");
         return USAGE_EXIT;
     }
-    let operation = match build_operation(&positional) {
-        Ok(op) => op,
+    let command = match build_command(&positional) {
+        Ok(command) => command,
         Err(message) => {
             eprintln!("usage error: {}", message);
             eprintln!("try 'dz-cli --help'");
             return USAGE_EXIT;
         }
     };
+    match command {
+        Command::Trace { kind, a, b } => run_trace(kind, &a, &b, &flags),
+        Command::Compare(op) => run_compare(&op, &flags),
+        Command::Calc(op) => run_calc(op, &flags),
+    }
+}
 
+fn run_calc(operation: Operation, flags: &Flags) -> i32 {
+    if flags.csv.is_some() {
+        eprintln!("usage error: '--csv' applies to 'trace' and 'compare', not to a plain call");
+        eprintln!("try 'dz-cli --help'");
+        return USAGE_EXIT;
+    }
     let request = Request::new(operation)
         .with_mode(flags.mode)
         .with_backend(flags.backend)
@@ -336,11 +735,24 @@ fn report_exit_code(_error: &ApiError) -> i32 {
 
 // ------------------------------------------------------------------- REPL
 
+/// The REPL's session state.
+///
+/// It lives here, not in `dz-api`, because `dz-api` is stateless by
+/// design: "which backend is active", the history and the memory register
+/// are interface concepts (`CLAUDE.md`, and `AppState` is the GUI's copy
+/// of exactly this). Nothing here is a dozenal *value*: the memory holds
+/// the **already-formatted string** `dz-api` returned, because the CLI
+/// cannot recompose a dozenal number any more than the frontend can.
+/// Recalling it means feeding that text back through `dz-parse`.
 struct Session {
     backend: BackendKind,
     mode: NumberMode,
     scale: usize,
     show_gates: bool,
+    /// The memory register: `None` is empty, as after `:memc`.
+    memory: Option<String>,
+    /// `(input, output)` pairs, in order. Process memory, like the GUI's.
+    history: Vec<(String, String)>,
 }
 
 fn print_repl_help() {
@@ -351,6 +763,9 @@ fn print_repl_help() {
     println!("  Functions: sin(1), sqrt(9), log(100), pi -- ':funcs' lists them all");
     println!("  Commands: :backend mvl|crt|table   :mode rational|fixed|dfp");
     println!("            :scale <n>   :gates   :funcs   :help   :quit");
+    println!("  Session:  :mem (recall)  :mem+ (store last result)  :memc (clear)");
+    println!("            :history   :clear   :session");
+    println!("  Research: run 'dz-cli trace add EEE 1' or 'dz-cli compare mul 25 34'");
 }
 
 fn run_repl() {
@@ -359,6 +774,8 @@ fn run_repl() {
         mode: NumberMode::Rational,
         scale: dz_api::default_scale(),
         show_gates: false,
+        memory: None,
+        history: Vec::new(),
     };
     let stdin = io::stdin();
     println!("dz-cli -- dozenal calculator. Default mode: rational. Type :help for usage, :quit to exit.");
@@ -392,6 +809,59 @@ fn run_repl() {
         if line == ":gates" {
             session.show_gates = !session.show_gates;
             println!("gate counts {}", if session.show_gates { "on" } else { "off" });
+            continue;
+        }
+        // Session commands (Phase 9): the terminal's equivalent of the
+        // GUI's memory box and history list. The memory holds text, never
+        // a number -- recalling it re-parses it with `dz-parse`.
+        if line == ":mem" {
+            match &session.memory {
+                Some(value) => println!("memory = {}", value),
+                None => println!("memory is empty (':mem+' stores the last result)"),
+            }
+            continue;
+        }
+        if line == ":mem+" {
+            match session.history.last() {
+                Some((_, output)) => {
+                    session.memory = Some(output.clone());
+                    println!("memory = {}", output);
+                }
+                None => println!("nothing to store yet"),
+            }
+            continue;
+        }
+        if line == ":memc" {
+            session.memory = None;
+            println!("memory cleared");
+            continue;
+        }
+        if line == ":history" {
+            if session.history.is_empty() {
+                println!("history is empty");
+            }
+            // The index is a counter, not a dozenal value: printing it in
+            // decimal is the same bookkeeping as a `Vec` length.
+            for (index, (input, output)) in session.history.iter().enumerate() {
+                println!("  {:>3}  {}  =  {}", index + 1, input, output);
+            }
+            continue;
+        }
+        if line == ":clear" {
+            session.history.clear();
+            println!("history cleared");
+            continue;
+        }
+        if line == ":session" {
+            println!("backend = {}", session.backend.label());
+            println!("mode = {}", session.mode.label());
+            println!("scale = {} fractional digits", session.scale);
+            println!("gate counts {}", if session.show_gates { "on" } else { "off" });
+            println!(
+                "memory = {}",
+                session.memory.as_deref().unwrap_or("(empty)")
+            );
+            println!("history = {} entries", session.history.len());
             continue;
         }
         if let Some(rest) = line.strip_prefix(":backend ") {
@@ -435,6 +905,11 @@ fn run_repl() {
                 // is looking at the terminal and can see whether their font
                 // renders them (docs/04-fase6-interfaces.md, 3.4).
                 println!("{}", plain_output(&response, session.mode, true));
+                // The history keeps the formatted text, which is all the
+                // interface ever holds of a dozenal value.
+                session
+                    .history
+                    .push((line.to_string(), response.display.clone()));
                 if session.show_gates {
                     if let Some(line) = gate_line(&response) {
                         println!("{}", line);

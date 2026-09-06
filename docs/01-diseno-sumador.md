@@ -424,3 +424,77 @@ vez de asumida.
 ## Qué no se construyó (honestidad de alcance)
 
 - `dz-int` no adoptó `lookahead_add`; sigue en `ripple_add`.
+
+---
+
+## La instrumentación después de la Fase 7
+
+La Fase 8 introdujo `GateNet` con dos instanciaciones (`Values`, `Levels`) para
+medir profundidad sin escribir cada circuito dos veces. La Fase 7 generalizó ese
+mismo patrón hacia arriba, y de paso corrigió una afirmación que este documento
+daba por buena.
+
+### Lo que había que corregir
+
+`circuits/depth.rs` decía —y esta sección lo repetía— que conteo y profundidad
+**tienen que** medirse en pasadas separadas, porque una pasada con `Levels`
+"contamina" el `GateCount`. Eso es cierto de un `*_depth` aislado, que es una
+*segunda* ejecución del circuito además de la del usuario. Pero no es cierto de
+la instanciación en sí: `Levels` llama al backend exactamente una vez por
+primitiva, con los mismos valores, igual que `Values`. Su flujo de control es
+idéntico porque las decisiones (`if N::value(carry) != ZERO`) leen los mismos
+valores.
+
+Es decir: **si se ejecuta `Levels` en vez de `Values`, y no además**, el
+`GateCount` resultante es el mismo y la profundidad sale gratis. Eso es lo que
+hace la Fase 7, y es la diferencia entre "profundidad de un circuito de
+laboratorio" y "profundidad de lo que el usuario acaba de calcular".
+
+`examples/gate_counts.rs` sigue midiendo con backends frescos, porque ahí sí se
+llama a `ripple_add` *y luego* a `ripple_add_depth`.
+
+### Lo que se generalizó
+
+1. Los circuitos que faltaban por hacer genéricos en `dz-gates`
+   (`comparator`, `complement`, `parity`, `multiplier`) pasaron al mismo
+   patrón: un cuerpo `*_net<N: GateNet>` y una función pública que es su
+   instanciación `Values`. Los conteos publicados no se movieron ni un gate —
+   `Values::lift` es la identidad y `Values` delega sin más.
+2. `GateNet` ganó dos métodos con cuerpo por defecto: `lift_at(d, level)`
+   (inyectar una señal que *ya venía* de otro circuito) y `level(s)`. `Values`
+   los ignora; `Levels` los implementa. Añadir métodos con cuerpo por defecto no
+   rompe a nadie.
+3. `dz-int` adoptó el patrón entero: `add`/`sub`/`mul`/`div_rem`/`compare`/
+   `is_even` tienen un solo cuerpo genérico y los métodos públicos eligen la
+   instanciación según haya o no un `DepthScope` activo.
+4. `Dz` pasó a llevar el nivel de sus dígitos. Ese es el truco que hace que la
+   profundidad **componga**: `(a+b)*c` mide la cadena entera, no `max` de dos
+   medidas independientes.
+
+### Lo que esto cuesta, dicho claramente
+
+La profundidad de una expresión se corta en cualquier punto donde una capa
+superior reconstruya un `Dz` dígito a dígito sin pasar por puertas — recortar
+ceros fraccionarios, mover el punto Humphrey, desempaquetar una mantisa. Esos
+reordenamientos no invocan ninguna primitiva, así que *deberían* conservar el
+nivel, y los cuatro sitios que existían se arreglaron con `Dz::at_level`. Pero
+nada obliga al siguiente: si alguien añade un reordenamiento y lo olvida, la
+profundidad medida quedará **por debajo** de la real, y en silencio. Es una
+subestimación, no una sobreestimación, lo cual al menos es el lado seguro para
+un número que se usa para decir "este circuito es más profundo que aquel".
+
+### Trazas
+
+`circuits/trace.rs` añade el visor paso a paso con la misma disciplina: no hay
+una segunda copia de `ripple_add`. `ripple_add_net_traced` es el único cuerpo
+del bucle y `ripple_add_net` lo llama con un callback vacío. La multiplicación
+usa un *sink* con métodos de cuerpo vacío (`MulTraceSink`), no un `Vec` que se
+llene siempre, para que el camino de producción no asigne memoria extra.
+Grabar un paso lee señales ya calculadas y no invoca ninguna primitiva, así que
+el `GateCount` de una traza es idéntico al de la operación sin trazar —
+`tests/trace.rs` lo fija contra los números publicados (1.212 y 9.795).
+
+La resta se traza en `dz-int`, no aquí, porque en esta capa no existe ningún
+restador: la resta es la *estrategia* de complemento a doce que monta `dz-int`
+sobre estos circuitos, y una traza honesta tiene que enseñar esas etapas en vez
+de fingir un préstamo que nunca ocurre.

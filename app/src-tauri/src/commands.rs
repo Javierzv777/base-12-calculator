@@ -47,7 +47,7 @@ impl OperationDto {
         }
     }
 
-    fn into_operation(self) -> Operation {
+    pub(crate) fn into_operation(self) -> Operation {
         match self {
             OperationDto::Sum { a, b } => Operation::Sum { a, b },
             OperationDto::Sub { a, b } => Operation::Sub { a, b },
@@ -62,7 +62,7 @@ impl OperationDto {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Serialize)]
 pub struct GateCountDto {
     pub cycle: u64,
     pub min: u64,
@@ -81,6 +81,9 @@ pub struct ResponseDto {
     pub periodic_note: bool,
     pub approximate: bool,
     pub gate_count: Option<GateCountDto>,
+    /// Circuit depth of the same run (Phase 7): measured alongside the
+    /// counters, in the same pass, without changing them.
+    pub depth: Option<u32>,
     pub backend: String,
     pub mode: String,
     pub scale: usize,
@@ -151,14 +154,8 @@ pub fn calc(state: State<AppState>, op: OperationDto) -> Result<ResponseDto, Str
         display: response.display,
         periodic_note: response.periodic_note,
         approximate: response.approximate,
-        gate_count: response.gate_count.map(|c| GateCountDto {
-            cycle: c.cycle,
-            min: c.min,
-            max: c.max,
-            lit: c.lit,
-            thr: c.thr,
-            total: c.total(),
-        }),
+        gate_count: response.gate_count.as_ref().map(gate_count_dto),
+        depth: response.depth,
         backend: backend.label().to_string(),
         mode: mode.label().to_string(),
         scale,
@@ -237,4 +234,17 @@ pub fn list_functions() -> Vec<FunctionDto> {
             always_exact: info.always_exact,
         })
         .collect()
+}
+
+/// Shared mapping so the calculator display and the research panel's
+/// comparison table cannot drift into two spellings of the same table.
+pub(crate) fn gate_count_dto(count: &dz_api::GateCount) -> GateCountDto {
+    GateCountDto {
+        cycle: count.cycle,
+        min: count.min,
+        max: count.max,
+        lit: count.lit,
+        thr: count.thr,
+        total: count.total(),
+    }
 }

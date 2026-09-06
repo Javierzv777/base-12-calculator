@@ -7,7 +7,16 @@
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <main class="app">
+    <nav class="tabs" role="tablist" aria-label="Vistas">
+      <button id="tab-calculator" class="tab active" type="button" role="tab" data-view="calculator" aria-selected="true">
+        Calculadora
+      </button>
+      <button id="tab-research" class="tab" type="button" role="tab" data-view="research" aria-selected="false">
+        Investigación
+      </button>
+    </nav>
+
+    <main id="view-calculator" class="app view" role="tabpanel" aria-labelledby="tab-calculator">
       <section class="panel calculator">
         <header class="panel-head">
           <h1>Calculadora dozenal</h1>
@@ -59,6 +68,7 @@
               <tr><th>lit</th><td id="g-lit">0</td></tr>
               <tr><th>thr</th><td id="g-thr">0</td></tr>
               <tr class="total"><th>total</th><td id="g-total">0</td></tr>
+              <tr class="total"><th>profundidad</th><td id="g-depth">0</td></tr>
             </tbody>
           </table>
         </section>
@@ -81,6 +91,96 @@
           <ul id="history-list"></ul>
         </section>
       </aside>
+    </main>
+
+    <main id="view-research" class="research view hidden" role="tabpanel" aria-labelledby="tab-research">
+      <section class="panel">
+        <header class="panel-head">
+          <h1>Panel de investigación</h1>
+          <p class="subtitle">
+            coste y profundidad del circuito, comparación de backends y el
+            acarreo paso a paso
+          </p>
+        </header>
+
+        <section class="research-block">
+          <div class="block-head">
+            <h2>Última operación</h2>
+            <span id="r-expression" class="muted">todavía no has calculado nada</span>
+          </div>
+          <table class="grid">
+            <tbody>
+              <tr><th>cycle</th><td id="r-cycle">0</td></tr>
+              <tr><th>min</th><td id="r-min">0</td></tr>
+              <tr><th>max</th><td id="r-max">0</td></tr>
+              <tr><th>lit</th><td id="r-lit">0</td></tr>
+              <tr><th>thr</th><td id="r-thr">0</td></tr>
+              <tr class="total"><th>total</th><td id="r-total">0</td></tr>
+              <tr class="total"><th>profundidad</th><td id="r-depth">0</td></tr>
+            </tbody>
+          </table>
+          <p class="muted small-note">
+            La profundidad es la cadena más larga de invocaciones de puerta de
+            toda la expresión, medida en la misma pasada que el conteo y sin
+            alterarlo.
+          </p>
+        </section>
+
+        <section class="research-block">
+          <div class="block-head">
+            <h2>Comparación de backends</h2>
+            <div class="block-actions">
+              <button id="compare-run" type="button" class="small">Comparar backends</button>
+              <button id="compare-export" type="button" class="small" disabled>Exportar CSV</button>
+            </div>
+          </div>
+          <p id="compare-status" class="muted">
+            Calcula algo en la pestaña «Calculadora» y vuelve aquí: la misma
+            operación se ejecuta en los tres backends.
+          </p>
+          <div id="compare-table"></div>
+        </section>
+
+        <section class="research-block">
+          <div class="block-head">
+            <h2>Visor paso a paso</h2>
+            <div class="block-actions">
+              <button id="trace-export" type="button" class="small" disabled>Exportar pasos CSV</button>
+              <button id="trace-summary-export" type="button" class="small" disabled>Exportar resumen CSV</button>
+            </div>
+          </div>
+          <form id="trace-form" class="trace-form">
+            <label>
+              A
+              <input id="trace-a" type="text" spellcheck="false" autocomplete="off" value="↋↋↋" />
+            </label>
+            <label>
+              Operación
+              <select id="trace-kind">
+                <option value="add">suma</option>
+                <option value="sub">resta</option>
+                <option value="mul">multiplicación</option>
+              </select>
+            </label>
+            <label>
+              B
+              <input id="trace-b" type="text" spellcheck="false" autocomplete="off" value="1" />
+            </label>
+            <button type="submit" class="small">Trazar</button>
+          </form>
+          <p class="muted small-note">
+            El visor traza un circuito concreto sobre enteros dozenales no
+            negativos: sin expresiones, sin signo y sin punto Humphrey.
+          </p>
+          <div class="playback">
+            <button id="trace-prev" type="button" class="small" disabled>‹ anterior</button>
+            <button id="trace-next" type="button" class="small" disabled>siguiente ›</button>
+            <button id="trace-all" type="button" class="small" disabled>ver todo</button>
+            <span id="trace-position" class="muted"></span>
+          </div>
+          <div id="trace-output"></div>
+        </section>
+      </section>
     </main>
 
     <script type="module" src="/src/main.ts"></script>

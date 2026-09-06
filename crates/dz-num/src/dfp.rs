@@ -95,7 +95,8 @@ impl DzFloat {
         let scale = value.scale as i64;
         let e = l - 1 - scale; // position (weight 12^e) of the most-significant digit
 
-        let abs_val = Dz::from_magnitude(false, digits.to_vec());
+        let abs_val =
+            Dz::from_magnitude(false, digits.to_vec()).at_level(value.magnitude.level());
 
         let (mantissa, exponent_adjust) = if (l as usize) <= MANTISSA_DIGITS {
             // Fewer than 12 significant digits: exact, just left-pad with

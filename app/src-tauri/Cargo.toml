@@ -16,6 +16,15 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# Phase 7: the research panel exports CSV to a real file. `plugin-dialog`
+# supplies the native "Save as" dialog; `plugin-fs` owns the filesystem
+# capability the app declares (see `capabilities/default.json`) and is what
+# the chosen path is registered against, so a future frontend-side read of
+# an exported file is already in scope. The bytes themselves are written by
+# `commands::export_csv` in Rust, because Rust is the only authority on the
+# CSV format.
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dz-api = { path = "../../crates/dz-api" }
