@@ -658,15 +658,20 @@ interfaz.
   clave gana la dirección — `11` es `↋` de ida y `13` de vuelta, así que las dos
   direcciones no pueden verse las entradas.
 
-**`suggestBase10Conversion` sigue en el módulo, exportada y con sus tests, pero
-ya no la llama nadie de la interfaz.** Es la heurística documentada del §2 y
-borrarla habría tirado trabajo probado que aún no está en ningún commit; queda
-como decisión explícita a la espera de que se pida quitarla. Es el único código
-del módulo sin llamante en la GUI.
+**`suggestBase10Conversion` se borró en el commit siguiente al de la herramienta.**
+Era la heurística documentada del §2, sin llamante desde que el §2.4 retiró el
+popup. Se commiteó primero con el resto y se quitó después, en un commit propio,
+para que el trabajo quede recuperable en el historial en vez de perderse: quien
+quiera resucitar el popup tiene ahí el código y sus casos. Con ella salieron
+`Base10Reason`, `Base10Suggestion`, `looksLikeExpression` y los cuatro tests que
+solo probaban el silencio de la heurística (prosa y texto ya dozenal); los demás
+casos siguen vivos apuntando a `convertBase10Text`, que es lo que la interfaz
+llama de verdad.
 
 ### 6.15 Verificación de §2.4
 
-- `node app/tests/base10.test.ts` → **117/117**: los 63 originales, los 21 del
+- `node app/tests/base10.test.ts` → **117/117** (**108** tras borrar la heurística
+  en el commit siguiente): los 63 originales, los 21 del
   caché y 33 nuevos de la dirección inversa (enteros, `0;6`→`0.5`, `0;3`→`0.25`,
   `0;16`→`0.125`, el tercio por modo y por escala, el `…` solo en la vista
   previa, la fracción entre paréntesis dentro de una expresión, identificadores,

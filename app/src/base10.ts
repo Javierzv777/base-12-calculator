@@ -78,35 +78,9 @@ export interface Base10Conversion {
   madeTruncated: boolean;
 }
 
-/**
- * Why the hint appeared. Shown to the user, because a suggestion that pops up
- * over a perfectly legal dozenal `12 + 11` is incomprehensible without a
- * stated motive -- and because `0.1` turning into `1/↊` must not be a surprise.
- *
- * Precedence when several apply: the most surprising outcome wins.
- */
-export type Base10Reason =
-  | "fraction"
-  | "truncated"
-  | "humphrey"
-  | "thousands"
-  | "generic";
-
-export interface Base10Suggestion {
-  /** The whole input text rewritten in base twelve. Goes into the input box. */
-  converted: string;
-  /** The same, with `…` where an expansion was cut. For the popup only. */
-  preview: string;
-  reason: Base10Reason;
-}
 
 const DECIMAL_DIGITS = "0123456789";
 
-/** Everything a short arithmetic expression is allowed to be made of. */
-const EXPRESSION_CHARS = /^[0-9A-Za-z+\-*/^(),.;\s]*$/;
-
-/** Longer than this and it is a document, not an expression. */
-const MAX_LENGTH = 200;
 
 /**
  * A decimal integer, optionally written with three-digit thousands groups.
@@ -682,75 +656,4 @@ export function clearBase10Cache(): void {
 /** How many entries the cache is holding. Tests only. */
 export function base10CacheSize(): number {
   return cache.size;
-}
-
-/**
- * True when the text has the shape of a short arithmetic expression.
- *
- * Identifiers are accepted only when they are immediately followed by `(`.
- * That is not a catalog check -- this module knows no function names and must
- * not -- it is what keeps pasted prose (`there are 12 cats`) from being read as
- * an expression.
- */
-function looksLikeExpression(text: string): boolean {
-  if (text.length === 0 || text.length > MAX_LENGTH || !EXPRESSION_CHARS.test(text)) {
-    return false;
-  }
-  if (!/[0-9]/.test(text)) {
-    return false;
-  }
-  let index = 0;
-  while (index < text.length) {
-    const identifier = IDENTIFIER.exec(text.slice(index));
-    if (identifier) {
-      index += identifier[0].length;
-      if (text[index] !== "(") {
-        return false;
-      }
-      continue;
-    }
-    index += 1;
-  }
-  return true;
-}
-
-/**
- * Decide whether to offer a conversion unprompted, and say why.
- *
- * Nothing here proves base ten: every run of `0`-`9` is legal in both bases.
- * That the text *could* already be dozenal does not stop the hint -- the user
- * is the one who knows which base they pasted from (`docs/08` section 2), and
- * `12 + 11` is legitimate in both. All the tool decides is when it can speak
- * without being a nuisance, and for that the "would it change anything" test
- * carries almost all the weight.
- *
- * The three conditions of section 2 must hold; the caller supplies the first
- * one by only ever calling this from a `paste` event. Text that already carries
- * a dozenal glyph is left to the button (section 2.0): the signal there is
- * genuinely weak, so the popup stays quiet.
- *
- * Returns `null` -- meaning "stay quiet" -- far more often than not. That is
- * the point.
- */
-export function suggestBase10Conversion(
-  text: string,
-  symbols: Base10Style,
-): Base10Suggestion | null {
-  if (hasDozenalSymbol(text, symbols) || !looksLikeExpression(text)) {
-    return null;
-  }
-  const conversion = convertBase10Text(text, symbols);
-  if (!conversion.changed) {
-    return null;
-  }
-  const reason: Base10Reason = conversion.madeFraction
-    ? "fraction"
-    : conversion.madeTruncated
-      ? "truncated"
-      : conversion.madeHumphrey
-        ? "humphrey"
-        : /[0-9],[0-9]{3}(?![0-9])/.test(text)
-          ? "thousands"
-          : "generic";
-  return { converted: conversion.text, preview: conversion.preview, reason };
 }

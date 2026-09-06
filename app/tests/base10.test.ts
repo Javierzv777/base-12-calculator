@@ -15,7 +15,6 @@ import {
   clearBase10Cache,
   convertBase10Text,
   convertBase12Text,
-  suggestBase10Conversion,
   terminatesInBase10,
   terminatesInBase12,
   type Base10Style,
@@ -43,22 +42,16 @@ function check(label: string, actual: unknown, expected: unknown): void {
   }
 }
 
-/** What the popup would offer, or null when it stays quiet. */
+/** The conversion, or null when it would change nothing. */
 function suggestion(text: string, symbols: Base10Style = CANONICAL): string | null {
-  return suggestBase10Conversion(text, symbols)?.converted ?? null;
+  const out = convertBase10Text(text, symbols);
+  return out.changed ? out.text : null;
 }
 
-function reason(text: string): string | null {
-  return suggestBase10Conversion(text, CANONICAL)?.reason ?? null;
-}
 
-function reasonOf(text: string, symbols: Base10Style): string | null {
-  return suggestBase10Conversion(text, symbols)?.reason ?? null;
-}
-
-/** What the popup would *display*, which may carry the preview-only `…`. */
+/** What the preview shows, which may carry the preview-only `…`. */
 function preview(text: string, symbols: Base10Style = CANONICAL): string | null {
-  return suggestBase10Conversion(text, symbols)?.preview ?? null;
+  return convertBase10Text(text, symbols).preview;
 }
 
 /** What the always-available button would produce, with no heuristic at all. */
@@ -68,7 +61,6 @@ function button(text: string, symbols: Base10Style = CANONICAL): string {
 
 // --- the case from the request -------------------------------------------
 check("12 + 11", suggestion("12 + 11"), "10 + ↋");
-check("12 + 11 reason", reason("12 + 11"), "generic");
 
 // --- unchanged text stays quiet: the filter that buys the discretion ------
 check("5 + 3 stays quiet", suggestion("5 + 3"), null);
@@ -89,13 +81,11 @@ check("0.5", suggestion("0.5"), "0;6");
 check("0.25", suggestion("0.25"), "0;3");
 check("0.75", suggestion("0.75"), "0;9");
 check("1.5", suggestion("1.5"), "1;6");
-check("0.5 reason", reason("0.5"), "humphrey");
 
 // --- decimals that do not terminate: the shape depends on the mode -------
 // rational: the exact fraction.
 check("0.1 rational", suggestion("0.1"), "1/↊");
 check("0.3 rational", suggestion("0.3"), "3/↊");
-check("0.1 rational reason", reason("0.1"), "fraction");
 // Inside a larger expression the fraction is parenthesised, or `1/0.1` would
 // become `1/1/↊`, which the parser reads as `(1/1)/↊`.
 check("1/0.1 rational", suggestion("1/0.1"), "1/(1/↊)");
@@ -105,7 +95,6 @@ check("2 + 0.3 rational", suggestion("2 + 0.3"), "2 + (3/↊)");
 check("0.1 fixed", suggestion("0.1", FIXED), "0;124972497249");
 check("0.3 fixed", suggestion("0.3", FIXED), "0;372497249724");
 check("0.1 dfp", suggestion("0.1", DFP), "0;124972497249");
-check("0.1 fixed reason", reasonOf("0.1", FIXED), "truncated");
 // The same case at another scale: the scale is what decides, not the tool.
 check("0.1 fixed scale 4", suggestion("0.1", FIXED_4), "0;1249");
 check("1.1 fixed scale 4", suggestion("1.1", FIXED_4), "1;1249");
@@ -136,11 +125,9 @@ check("0.375", suggestion("0.375"), "0;46");
 
 // --- text that already carries dozenal glyphs ----------------------------
 // The button converts what it can and leaves the rest; the popup does not fire.
-check("↊ + 12 stays quiet", suggestion("↊ + 12"), null);
 check("↊ + 12 by button", button("↊ + 12"), "↊ + 10");
 check("4;6 * 3 stays quiet", suggestion("4;6 * 3"), null);
 check("↊ + 12 kept dozenal", convertBase10Text("↊ + 12", CANONICAL).keptDozenal, true);
-check("configured symbol stays quiet", suggestion("12 + B", { ...CANONICAL, ten: "A", eleven: "B" }), null);
 check("configured symbol by button", button("12 + B", { ...CANONICAL, ten: "A", eleven: "B" }), "10 + B");
 
 // --- digits inside an identifier are never rewritten ---------------------
@@ -148,11 +135,8 @@ check("identifier digits", button("log12(144)"), "log12(100)");
 check("call still suggests", suggestion("sqrt(144)"), "sqrt(100)");
 
 // --- prose is not an expression ------------------------------------------
-check("prose stays quiet", suggestion("there are 12 cats"), null);
-check("accented prose stays quiet", suggestion("hay 12 gatos aquí"), null);
 
 // --- three-digit thousands grouping is a base-10 tell --------------------
-check("thousands reason", reason("1,000"), "thousands");
 check("thousands value", suggestion("1,000"), "6↋4");
 // Dozenal grouping is four digits: leave it alone.
 check("dozenal grouping stays quiet", suggestion("1,0000"), null);
