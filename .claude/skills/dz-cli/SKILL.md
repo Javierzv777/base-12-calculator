@@ -109,6 +109,20 @@ In the REPL the same thing is `:alphabet ab`; bare `:alphabet` reports the
 current pair. Changing it repaints `:history` and `:mem`, because those
 hold canonical text.
 
+**There is no `:alphabet reset`.** Set the pair back to the canonical
+glyphs, which stay accepted whatever pair is in force — that is exactly
+what makes the round trip possible — and the bare report says `(default)`
+again:
+
+```
+dz> :alphabet ab
+alphabet: ten = 'a', eleven = 'b'
+dz> :alphabet ↊↋
+alphabet: ten = '↊', eleven = '↋'
+dz> :alphabet
+alphabet: ten = '↊', eleven = '↋' (default)
+```
+
 ## 3. Recipes
 
 Every command below was executed; the output shown is what it printed.
@@ -393,6 +407,31 @@ $ dz-cli eval "3.14159265359" --input-base 10 --mode rational
 $ dz-cli chain 50X773764EE/1746996X454 --input-base 10
 314159265359/100000000000
 ```
+
+In the REPL the same thing is `:chain <display>`, which reads that session's
+`:inputbase` and `:backend`, and prints the conversion's own gate count when
+`:gates` is on:
+
+```
+dz> :inputbase 10
+input base = 10
+dz> :gates
+gate counts on
+dz> 144+11
+10↋
+gates: cycle=16896 min=26332 max=19679 lit=13656 thr=3480 total=80043 depth=478 recon=0
+dz> :chain 10↋
+155
+gates: cycle=8316 min=9942 max=7704 lit=5676 thr=1728 total=33366
+```
+
+Those are **two separate bills**, and that is the point: the first paid to
+*read* `144` and `11` as decimals, the second to *write* the answer back as
+one. Chaining is a later gesture, so it is never folded into the
+calculation's count. The chain line carries no `depth`/`recon`:
+`dz_api::chain_operand` returns a `GateCount` and nothing else — it opens no
+`DepthScope` the way `execute` does — so the conversion reports what it
+spent, not how deep it ran.
 
 `--backend` applies here too (`chain --backend crt` measures the CRT
 reconstructions of the same write-back). `--input-base 12` is legal but a
