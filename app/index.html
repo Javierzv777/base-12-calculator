@@ -70,10 +70,22 @@
           <h2>Cómo se lee</h2>
           <p class="muted small-note">
             Lo que escribes se lee en <strong>base 10</strong>; el resultado
-            se muestra en <strong>base 12</strong> y es exacto (modo
-            racional). Esta cara no tiene ajustes: para cambiar modo,
-            backend o dígitos de trabajo, usa la pestaña «Calculadora
-            dozenal», que es una calculadora aparte con su propio estado.
+            se muestra en <strong>base 12</strong>.
+          </p>
+          <label>
+            Resultado
+            <select id="s-mode">
+              <option value="rational">exacto (fracción)</option>
+              <option value="fixed">decimal (;)</option>
+            </select>
+          </label>
+          <p class="muted small-note">
+            <strong>Exacto</strong> no redondea nunca: si el valor no tiene
+            forma dozenal finita sale como fracción. <strong>Decimal</strong>
+            lo expande con punto Humphrey, truncado a los dígitos de trabajo.
+            El cambio se aplica al siguiente cálculo. Para backend y dígitos
+            de trabajo usa la pestaña «Calculadora dozenal», que es una
+            calculadora aparte con su propio estado.
           </p>
         </section>
 

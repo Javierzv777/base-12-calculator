@@ -232,6 +232,8 @@ fn print_usage() {
     println!("  Digits are 0-9 plus X (ten) and E (eleven); ';' is the Humphrey point,");
     println!("  so 4;6 is four and a half. Inside a function call the comma separates");
     println!("  arguments, so write 10000 rather than the grouped form 1,0000 there.");
+    println!("  With --input-base 10 the comma is the DECIMAL separator ('3,14' is");
+    println!("  '3.14'), so base ten has none left for grouping: 1,000,000 is an error.");
     println!("  Exit codes: 0 success, 1 calculation error, 2 usage error.");
 }
 
@@ -850,16 +852,40 @@ fn gate_count_json_local(count: &GateCount) -> String {
 /// has no dozenal glyphs to translate, so running it through the
 /// presentation alphabet would be a no-op at best.
 fn run_chain(display: &str, flags: &Flags) -> i32 {
-    match dz_api::chain_operand(flags.backend, flags.input_base, display) {
+    // The text arrives spelled the way this invocation *prints*, so it is
+    // read back the same way any other input is: through the presentation
+    // alphabet first. Skipping this let `--alphabet ab` chain `10b` into
+    // `12b` -- the `b` copied through as if it were a name, a mixed-base
+    // string with no error to announce it. With the default alphabet
+    // `to_canonical` is the identity, so nothing else changes.
+    let canonical = match flags.alphabet.to_canonical(display) {
+        Ok(text) => text,
+        Err(error) => {
+            if flags.json {
+                println!("{{\"ok\":false,\"error\":\"{}\"}}", escape_json_local(&error.to_string()));
+            } else {
+                eprintln!("error: {}", error);
+            }
+            return ERROR_EXIT;
+        }
+    };
+    match dz_api::chain_operand(flags.backend, flags.input_base, &canonical) {
         Ok((text, count)) => {
             if flags.json {
+                // Canonical, like every other JSON and CSV this binary
+                // prints: an exchange document's spelling must not depend
+                // on the alphabet the operator happened to configure.
                 println!(
                     "{{\"ok\":true,\"display\":\"{}\",\"gate_count\":{}}}",
                     escape_json_local(&text),
                     gate_count_json_local(&count)
                 );
             } else {
-                println!("{}", text);
+                // Through the same funnel as every other printed result:
+                // base ten has no ten/eleven digit to translate, but
+                // `--input-base 12` is the identity and has to come back
+                // in the alphabet it went in with.
+                println!("{}", shown(&text, &flags.alphabet, flags.unicode));
                 if flags.gates {
                     println!(
                         "gates: cycle={} min={} max={} lit={} thr={} total={}",
@@ -1137,9 +1163,20 @@ fn run_repl() {
         // `:mode`, not history-scoped -- it takes whatever text is typed
         // after it, not necessarily the last result.
         if let Some(rest) = line.strip_prefix(":chain ") {
-            match dz_api::chain_operand(session.backend, session.input_base, rest.trim()) {
+            // Read through the session's alphabet, exactly as an ordinary
+            // line is: `:alphabet ab` then `:chain 10b` has to mean the
+            // same number as `:chain 10↋`, not copy the `b` through as a
+            // name and print a mixed-base string.
+            let canonical = match session.alphabet.to_canonical(rest.trim()) {
+                Ok(text) => text,
+                Err(error) => {
+                    println!("error: {}", error);
+                    continue;
+                }
+            };
+            match dz_api::chain_operand(session.backend, session.input_base, &canonical) {
                 Ok((text, count)) => {
-                    println!("{}", text);
+                    println!("{}", shown(&text, &session.alphabet, true));
                     if session.show_gates {
                         println!(
                             "gates: cycle={} min={} max={} lit={} thr={} total={}",

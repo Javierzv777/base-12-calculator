@@ -346,9 +346,12 @@ la única frontera del repo donde entra `serde`),
 guarda `Sessions { simple, advanced }` y **cada comando nombra su cara** con un
 parámetro `face: Face` (`"simple"`/`"advanced"`); no hay «cara actual» en Rust, a
 propósito, porque sería un tercer estado que las dos visibles podrían
-contradecir. La sesión `simple` está fijada a `input_base = Ten` + modo
-`rational` + MVL y su cara no ofrece ningún control para cambiarlo; la
-`advanced` arranca como siempre (`Twelve`) y lo configura todo. Cada una lleva su
+contradecir. La sesión `simple` tiene `input_base = Ten` **fijo** (es lo que esa
+cara es, y no hay control para cambiarlo) y arranca en modo `rational` + MVL; su
+única perilla es `Resultado: exacto | decimal`, que mueve el modo entre
+`rational` y `fixed` (`docs/10` §8.7) — backend y dígitos de trabajo siguen solo
+en la otra cara. La `advanced` arranca como siempre (`Twelve`) y lo configura
+todo. Cada una lleva su
 entrada a medias, su resultado, su historial, su memoria y sus ajustes: cambiar
 modo o backend en una no toca la otra, y los historiales no se mezclan.
 
@@ -578,8 +581,15 @@ Detalle en `docs/10-entrada-base-10.md`.
   once. Por la misma razón `x` y `t` tampoco pueden ser nombres.
 - Dentro de una llamada la coma separa argumentos, así que ahí hay que escribir
   `10000` y no la forma agrupada `1,0000` (fuera de las llamadas sigue siendo el
-  separador de agrupación de siempre). En base 10 vale lo mismo: `1,000,000`
-  funciona fuera de una llamada, dentro hay que escribir `1000000`.
+  separador de agrupación de siempre).
+- **En base 10 la coma es el separador decimal, no de agrupación**: `3,14` es
+  `3.14`, y base 10 se queda sin agrupación, así que `1,000,000` es error ruidoso
+  («a second decimal separator»). La coma es lo que escribe la tecla decimal de
+  un teclado numérico español, y leerla como agrupación daba `314` en silencio
+  (`docs/10` §3.3). Base 12 no cambia: allí el separador fraccionario es `;`, así
+  que la coma sigue libre para agrupar de cuatro en cuatro. Dentro de una llamada
+  la coma sigue separando argumentos en las dos bases, así que un decimal como
+  argumento se escribe con punto: `log_base(2.5, 2)`.
 - La base de entrada es **solo de entrada**: `Response.display` siempre es
   dozenal. Convertirlo de vuelta sin que nadie lo pida sería una segunda vía de
   cálculo sin medir; para eso está `chain_operand`, que se llama a propósito y
@@ -592,7 +602,8 @@ Detalle en `docs/10-entrada-base-10.md`.
   científico ni el botón `10→12`: su teclado es el que se pidió (`0-9 .`,
   operadores, `=`, `C`). La sesión sí tiene registro de memoria, para cuando se
   pida. Escribir `sqrt(2)` en su caja funciona, pero nada en la interfaz lo
-  sugiere.
+  sugiere. Sí tiene selector `exacto | decimal` (`docs/10` §8.7); backend y
+  dígitos de trabajo siguen sin estar, por ser controles de investigación.
 - Las trascendentes son aproximaciones truncadas a la escala de trabajo y se
   marcan con `~`; en modo racional se muestran en punto fijo en vez de como una
   fracción de doce dígitos.

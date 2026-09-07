@@ -352,3 +352,86 @@ fn the_help_text_documents_everything_new() {
         assert!(text.contains(expected), "{} missing from help", expected);
     }
 }
+
+// ---------------------------------------------------------------- chain
+
+/// `chain` has to read back exactly what this binary prints. The terminal
+/// gets the ASCII aliases unless `--unicode` is given, so `X`/`E` are the
+/// ordinary spelling of a result and not a legacy form. Reading them as
+/// letters split the magnitude at every alias and copied the letters
+/// through as if they were operators: `50X773764EE` came back as
+/// `60X1893244EE`, a mixed-base string with no error to announce it.
+#[test]
+fn chain_reads_back_the_spelling_the_cli_itself_prints() {
+    let printed = stdout(&run(&[
+        "eval", "144+11", "--input-base", "10", "--mode", "fixed",
+    ]));
+    let printed = printed.trim().to_string();
+    assert_eq!(printed, "10E", "the default terminal spelling");
+    assert_eq!(
+        stdout(&run(&["chain", &printed, "--input-base", "10"])).trim(),
+        "155"
+    );
+    // The canonical spelling of the same value must agree exactly.
+    assert_eq!(
+        stdout(&run(&["chain", "10\u{218B}", "--input-base", "10"])).trim(),
+        "155"
+    );
+}
+
+/// The same through a configured presentation alphabet: `--alphabet ab`
+/// prints `10b`, and chaining that back has to mean the same number rather
+/// than copy the `b` through as if it were a name.
+#[test]
+fn chain_reads_back_a_configured_alphabet() {
+    let printed = stdout(&run(&[
+        "eval", "144+11", "--input-base", "10", "--mode", "fixed", "--alphabet", "ab",
+    ]));
+    assert_eq!(printed.trim(), "10b");
+    assert_eq!(
+        stdout(&run(&[
+            "chain", "10b", "--input-base", "10", "--alphabet", "ab"
+        ]))
+        .trim(),
+        "155"
+    );
+}
+
+/// A whole decimal fraction survives the round trip through the ASCII
+/// spelling: pi to eleven places is the case that first showed the bug.
+#[test]
+fn chain_round_trips_a_decimal_fraction_through_the_ascii_spelling() {
+    let printed = stdout(&run(&[
+        "eval",
+        "3.14159265359",
+        "--input-base",
+        "10",
+        "--mode",
+        "rational",
+    ]));
+    // The periodicity note follows the value on the same line.
+    let printed = printed.trim().split(' ').next().unwrap().to_string();
+    assert_eq!(printed, "50X773764EE/1746996X454");
+    assert_eq!(
+        stdout(&run(&["chain", &printed, "--input-base", "10"])).trim(),
+        "314159265359/100000000000"
+    );
+}
+
+/// In base twelve the conversion is the identity, so the text comes back
+/// in the alphabet it went in with -- while the JSON stays canonical, like
+/// every other exchange document this binary writes.
+#[test]
+fn chain_in_base_twelve_keeps_the_alphabet_but_the_json_stays_canonical() {
+    assert_eq!(
+        stdout(&run(&[
+            "chain", "ab", "--input-base", "12", "--alphabet", "ab"
+        ]))
+        .trim(),
+        "ab"
+    );
+    let json = stdout(&run(&[
+        "chain", "ab", "--input-base", "12", "--alphabet", "ab", "--json",
+    ]));
+    assert!(json.contains("\"display\":\"\u{218A}\u{218B}\""), "{}", json);
+}

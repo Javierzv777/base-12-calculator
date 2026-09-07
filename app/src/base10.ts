@@ -83,10 +83,17 @@ const DECIMAL_DIGITS = "0123456789";
 
 
 /**
- * A decimal integer, optionally written with three-digit thousands groups.
- * Dozenal groups by four, so the three-group shape is a base-10 tell.
+ * The two spellings of the decimal separator, either of which introduces the
+ * fractional part.
+ *
+ * `,` is the decimal separator for most of the world and is what a Spanish or
+ * German numeric keypad emits, so base ten spends its comma here and has none
+ * left over for digit grouping -- `1,000,000` is refused upstream rather than
+ * read as a million (`docs/10` section 3.3). Base twelve is unaffected: its
+ * fractional separator is the Humphrey point `;`, which leaves the comma free
+ * to keep grouping by four.
  */
-const GROUPED_NUMBER = /^[0-9]{1,3}(?:,[0-9]{3})+/;
+const DECIMAL_FRACTION = /^[.,]([0-9]+)/;
 
 /** A maximal run of letters and digits that starts with a letter. */
 const IDENTIFIER = /^[A-Za-z][A-Za-z0-9]*/;
@@ -256,7 +263,7 @@ function computeBase10Text(text: string, symbols: Base10Style): Base10Conversion
   // A bare literal keeps the documented shape (`0.1` -> `1/↊`); inside a larger
   // expression the fraction is parenthesised, because `1/0.1` must not become
   // `1/1/↊`, which the parser reads left to right as `(1/1)/↊`.
-  const bare = /^\s*[0-9]+\.[0-9]+\s*$/.test(text);
+  const bare = /^\s*[0-9]+[.,][0-9]+\s*$/.test(text);
   let out = "";
   // Built in step with `out` and differing from it only where an expansion was
   // cut: `…` shows the reader the number goes on and must never reach the box.
@@ -284,17 +291,10 @@ function computeBase10Text(text: string, symbols: Base10Style): Base10Conversion
 
     const character = text[index];
     if (character >= "0" && character <= "9") {
-      const grouped = GROUPED_NUMBER.exec(rest);
-      let literal: string;
-      if (grouped && !/^[0-9]/.test(rest.slice(grouped[0].length))) {
-        literal = grouped[0];
-      } else {
-        literal = /^[0-9]+/.exec(rest)![0];
-      }
-      index += literal.length;
-      const plain = literal.split(",").join("");
+      const plain = /^[0-9]+/.exec(rest)![0];
+      index += plain.length;
 
-      const fraction = /^\.([0-9]+)/.exec(text.slice(index));
+      const fraction = DECIMAL_FRACTION.exec(text.slice(index));
       if (fraction) {
         index += fraction[0].length;
         const converted = convertDecimal(plain, fraction[1], symbols);

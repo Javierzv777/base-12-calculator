@@ -70,10 +70,31 @@ fn arithmetic_composes_across_the_rewrite() {
     // 155 decimal = 1*144 + 0*12 + 11.
     assert_eq!(display("144 + 11", InputBase::Ten), "10\u{218B}");
     assert_eq!(display("12 * 12", InputBase::Ten), "100");
-    // The grouping comma is dropped outside a call, so this is one million.
+    // Outside a call the comma is the DECIMAL separator, so it composes
+    // with the arithmetic exactly as the point does.
     assert_eq!(
-        display("1,000,000", InputBase::Ten),
-        display("1000000", InputBase::Ten)
+        display("3,14 + 0,01", InputBase::Ten),
+        display("3.14 + 0.01", InputBase::Ten)
+    );
+}
+
+/// Base ten spends its comma on the fractional part, which is what a
+/// Spanish or German numeric keypad emits, so it has none left over for
+/// grouping: `1,000,000` is refused rather than silently read as a million.
+/// Reading it as grouping is what made `3,14` mean `314`.
+#[test]
+fn grouping_a_base_ten_literal_is_refused_rather_than_guessed() {
+    let error = execute(
+        &Request::new(Operation::Eval {
+            expr: "1,000,000".to_string(),
+        })
+        .with_input_base(InputBase::Ten),
+    )
+    .expect_err("two decimal separators in one literal");
+    assert!(
+        error.to_string().contains("second decimal separator"),
+        "{}",
+        error
     );
 }
 

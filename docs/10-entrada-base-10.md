@@ -102,11 +102,16 @@ circuito más caro del proyecto. Eso se ve en los números de §5.
   el lexer canónico leería como *número* (`E`, `XE`) es exactamente la que base
   10 tiene que rechazar; una que lee como *nombre* (`abs`, `exp`, `tan`) pasa
   intacta. No hay una segunda copia de la regla.
-- `lexer::CallParens` decide qué significa una coma. Se extrajo del lexer a un
-  tipo `pub(crate)` que ahora **usan los dos**: dentro de una llamada la coma
-  separa argumentos y termina el literal, fuera es el separador de agrupación y
-  se descarta, así que `1,000,000` se lee como un solo número de siete cifras y
-  `log_base(100,10)` sigue siendo dos argumentos.
+- `lexer::CallParens` decide qué significa una coma **dentro de una llamada**.
+  Se extrajo del lexer a un tipo `pub(crate)` que ahora usan los dos: ahí la
+  coma separa argumentos y termina el literal, así que `log_base(100,10)` sigue
+  siendo dos argumentos en las dos bases.
+
+  Fuera de una llamada las dos bases se separan, y a propósito: en base 12 la
+  coma agrupa de cuatro en cuatro (el hueco lo deja `;`), y en base 10 es el
+  **separador decimal**, que es lo que escribe un teclado numérico español.
+  Leerla como agrupación hacía que `3,14` valiera `314` en silencio; el porqué
+  de la decisión y su precio —base 10 se queda sin agrupación— está en §3.3.
 
 **La simplificación, dicha como tal:** en base 10 **no** se aplica
 `DisplayAlphabet::to_canonical`. Sin letras-dígito, una tira de letras es
@@ -172,8 +177,9 @@ cada una recibe un trato distinto — porque solo una de las dos puede escribirs
 como decimal finito:
 
 - **Racional** (`n/d`): son dos **enteros**. Convertir cada uno por separado es
-  exacto siempre. La cara simple está fijada a racional precisamente para no
-  salir nunca de este caso.
+  exacto siempre. La cara simple arranca en racional precisamente para no salir
+  de este caso salvo que se lo pidan (§8.7: el selector existe, y elegir
+  `decimal` tiene el precio que allí se mide).
 - **Fijo y DFP** (`i;f`): el valor es `magnitud / 12^escala`. Exacto como
   fracción, pero a menudo no como decimal — `0;4` es un tercio y no tiene forma
   decimal finita. **No se trunca en silencio**: se emite la fracción exacta en
@@ -188,6 +194,109 @@ como decimal finito:
 Es la misma decisión que `docs/08` §3.2 ya tomó en la dirección contraria, cuando
 `0.1` no terminaba en base 12 y salió como `1/↊`. Coherencia con el precedente,
 no una regla nueva.
+
+### 3.2 El fallo corregido: los alias ASCII son dígitos, no letras
+
+La primera versión de `from_dozenal_text` decidía «esto no es un número» con
+`char::is_ascii_alphabetic`, y su comentario justificaba la elección diciendo que
+la salida formateada nunca usa los alias `X`/`E`. **Esa premisa era falsa**:
+`dz-cli` imprime los alias ASCII salvo que se le pase `--unicode`, así que `X` y
+`E` son la forma *ordinaria* de un resultado en el terminal, no una ortografía
+heredada.
+
+La consecuencia era un fallo silencioso de la misma clase que toda esta sección
+existe para evitar. El escáner cortaba la magnitud en cada alias, convertía cada
+trozo por separado y copiaba las letras tal cual, como si fueran operadores:
+
+```
+$ dz-cli chain 50X773764EE/1746996X454 --input-base 10
+60X1893244EE/4822530X640      ← ni base 10 ni base 12, y sin ningún error
+```
+
+`60` es `50` dozenal, `1893244` es `773764` dozenal, y las `X`/`E` quedan
+intactas entre medias. La misma cuenta escrita con los glifos canónicos daba el
+resultado correcto (`314159265359/100000000000`), así que dos ortografías del
+mismo número daban dos respuestas distintas.
+
+La regla correcta ya existía y ya estaba importada en el módulo: **una tira
+maximal de letras es un nombre solo si alguna de sus letras no es alias de
+dígito** (`lexer::is_identifier_run`, la misma que toma prestada
+`to_dozenal_text`). Bajo ella `Inf` y `NaN` —los únicos nombres que la salida
+formateada puede contener, y ninguna de cuyas letras es alias— se siguen
+copiando enteros, mientras que `X`, `E` y `XE` se leen como lo que son.
+
+El mismo fallo, por la misma causa, aparecía una segunda vez en el alfabeto de
+presentación: `--alphabet ab` imprime `10b`, y `chain` no aplicaba `to_canonical`
+a su argumento, así que la `b` se copiaba como nombre y salía `12b`. Ahora
+`run_chain` y `:chain` leen su texto por el mismo embudo que cualquier otra
+entrada —el alfabeto primero, la base después— y las tres ortografías del mismo
+número coinciden:
+
+```
+$ dz-cli chain 10E  --input-base 10                 → 155
+$ dz-cli chain 10↋  --input-base 10                 → 155
+$ dz-cli chain 10b  --input-base 10 --alphabet ab   → 155
+```
+
+Lo que **no** cambió: la aritmética. El algoritmo de las dos direcciones
+(`nf / 10^k` a la ida, `dígitos / 12^k` a la vuelta, ambos convertidos como
+enteros y divididos con puertas) siempre fue correcto, y los conteos de §5 no se
+mueven. El fallo estaba entero en el tokenizador — la parte «obvia» del módulo,
+que es donde conviene recordar que estaba.
+
+### 3.3 La coma: en base 10 es el separador decimal
+
+El segundo fallo del tokenizador, y el más caro de los dos, venía de heredar
+una regla de base 12 que en base 10 no encaja.
+
+En base 12 el separador fraccionario es el punto Humphrey `;`, así que la coma
+queda **libre** y el proyecto la usa como separador de agrupación de cuatro
+dígitos (`1,0000`). El pre-paso de base 10 copió esa regla: toda coma fuera de
+una llamada se borraba. La consecuencia:
+
+```
+3,14                  →  314          (cien veces el número tecleado)
+3,14159265359 + 0,0000000001
+                      →  50↊77376500  (= 314159265359 + 1)
+```
+
+Ninguno de los dos avisaba de nada. Y no es un caso rebuscado: **la coma es el
+separador decimal de la mayor parte del mundo**, y en un teclado numérico
+español o alemán la tecla decimal escribe `,`, no `.`. Un usuario que teclea
+`3,14` en la cara de base 10 obtenía en silencio un número cien veces mayor.
+
+Ni siquiera era coherente con el propio repositorio: `app/src/base10.ts` sí
+validaba la forma del agrupamiento (`/^[0-9]{1,3}(?:,[0-9]{3})+/`, grupos de
+tres exactos), mientras que el motor borraba cualquier coma sin mirar. Dos
+lecturas distintas del mismo texto, que es justo lo que el usuario notó.
+
+**Decisión: en base 10, `,` y `.` son los dos el separador decimal**, y base 10
+se queda sin separador de agrupación. Un literal con dos separadores es error
+ruidoso:
+
+```
+3,14        →  3.14        ✔
+0,5         →  0;6         ✔
+1,000,000   →  error: base-ten input at 5: a second decimal separator --
+               in base ten both '.' and ',' mark the fractional part, so
+               digits cannot be grouped: write 1000000, not 1,000,000
+```
+
+El intercambio es el correcto: agrupar es **cosmético** y `1000000` siempre está
+disponible, mientras que leer `3,14` como `314` es una respuesta silenciosamente
+falsa. Y es la misma prioridad que ya gobierna el resto del módulo — antes se
+prefirió emitir `1/↊` a truncar en silencio (§3.1).
+
+Dos cosas que **no** cambiaron:
+
+- **Dentro de una llamada la coma sigue separando argumentos**, porque ahí el
+  conflicto es real y la llamada tiene prioridad: `log_base(2.5, 2)` se escribe
+  con punto. Esa regla la sigue decidiendo `lexer::CallParens`, sin copia.
+- **Base 12 queda intacta.** `1,0000` sigue siendo agrupación, porque allí `;`
+  ocupa el puesto de separador fraccionario y los dos papeles nunca chocaron.
+
+`app/src/base10.ts` se alineó con la misma regla en la dirección 10→12, para que
+el botón de conversión y el motor no vuelvan a leer `3,14` de dos maneras.
 
 ---
 
@@ -312,8 +421,12 @@ Desviaciones respecto del plan, todas conscientes:
    tiras maximales de letras, y eso se hizo; pero hacía falta *también* la regla
    de la coma, que estaba escrita a mano dentro de `lex`. Copiarla habría sido
    exactamente el fallo que `docs/07` §2 vigila, así que se sacó a un tipo
-   `pub(crate)` que usan los dos. Sin ese paso, `1,000,000` en base 10 se habría
-   leído como `100` en silencio.
+   `pub(crate)` que usan los dos. Sin ese paso, `log_base(100,10)` en base 10 se
+   habría leído como un solo argumento de cinco cifras en silencio.
+
+   Lo que esa reutilización **no** cubría era la coma *fuera* de una llamada,
+   donde base 10 y base 12 no quieren lo mismo. Copiar ahí la regla dozenal fue
+   el fallo que §3.3 corrige.
 
 2. **Una cifra decimal sola cuesta 0 puertas.** El plan pedía fijar por test que
    «el coste de la conversión es > 0 y crece con el número de cifras». Es cierto
@@ -344,10 +457,10 @@ Desviaciones respecto del plan, todas conscientes:
 
 ### Lo que no se hizo
 
-- **No hay separador de miles en base 10 dentro de una llamada.** Fuera de una
-  llamada `1,000,000` funciona; dentro, la coma separa argumentos y hay que
-  escribir `1000000`. Es la misma limitación que base 12 ya tenía con `1,0000`,
-  por la misma razón posicional.
+- **No hay separador de miles en base 10, en ningún sitio.** La coma se gastó
+  en el separador decimal (§3.3), así que `1,000,000` es error y se escribe
+  `1000000`. Dentro de una llamada la coma además separa argumentos, la misma
+  limitación posicional que base 12 ya tenía con `1,0000`.
 - **La vuelta en modo fijo emite una fracción, no un decimal finito.** Cuando el
   valor *sí* tiene forma decimal finita (`0;6` es exactamente `0.5`) se emite
   igualmente `6/12`. Detectarlo pediría factorizar el denominador, y la fracción
@@ -501,3 +614,57 @@ tiene un solo sitio donde estar.
   `diff`; lo que se comprobó es que la pestaña «Calculadora dozenal» muestra el
   mismo teclado dozenal, los mismos selectores, el mismo `10→12`/`⇄`, el mismo
   botón de alfabeto y las mismas secciones de coste, memoria e historial.
+
+### 8.7 Añadido: la cara simple elige exacto o decimal
+
+Pedido posterior del usuario, tras probar el arreglo de la coma (§3.3): «pensé
+que iba a ser fixed, creo que hace falta poder poner fixed aquí también».
+
+El diseño original fijaba la cara simple a **racional** y no ofrecía ningún
+control (§8.1). La razón era buena y sigue en pie: racional es el modo exacto,
+así que un resultado es siempre `n` o `n/d` —dos enteros— y el encadenado de
+vuelta a base 10 nunca se topa con el caso de punto fijo. Pero tenía un coste
+que en pantalla pesa más de lo que se anticipó:
+
+```
+3,14159265359 + 0,000000001   →   50↊77376583/1746996↊454
+```
+
+Es exacto y es correcto, pero **no se parece a un número** para quien quería
+ver π en base 12. Una calculadora que solo sabe contestar con una fracción de
+once cifras es menos útil que la calculadora que dice simplificar.
+
+Lo añadido es un único selector, `Resultado: exacto | decimal`, con la misma
+forma que el `Modo` de la cara dozenal (`<label><select>`) y el mismo
+comportamiento: fija el ajuste y repinta, **se aplica al siguiente cálculo**.
+No se reevalúa el resultado en pie, porque eso gastaría puertas que nadie pidió
+y metería una segunda entrada de historial para un solo cálculo.
+
+```
+exacto   →  50↊77376583/1746996↊454
+decimal  →  3;1848094991837↊563963↊743   (periódica, truncada)
+```
+
+Lo que **no** cambió, y por qué:
+
+- **La base de entrada sigue clavada en 10.** Es lo que esta cara *es*; un
+  control para cambiarla la convertiría en la otra pestaña.
+- **Backend y dígitos de trabajo siguen fuera.** Son controles de
+  investigación, y esta cara no es un instrumento de investigación.
+- **Racional sigue siendo el valor por defecto**, por la razón de §8.1.
+
+El precio de elegir `decimal`, dicho en claro: el encadenado deja de ser
+bonito. Desde un resultado de punto fijo, `chain_operand` devuelve
+`magnitud / 12^escala` convertido a base 10, que es exacto pero enorme:
+
+```
+desde  3;1848094991837↊563963↊743
+  →    249746711237236259670479523/79496847203390844133441536
+
+desde  50↊77376583/1746996↊454
+  →    314159265459/100000000000
+```
+
+Ambos son correctos; el segundo es el que se parece a lo que se tecleó. Por eso
+el valor por defecto no se movió, y por eso la nota de la cara lo dice en vez de
+dejar que se descubra encadenando.

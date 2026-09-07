@@ -54,7 +54,9 @@ Traps to avoid:
   For the same reason `x` and `t` cannot be function names.
 - Inside a function call the comma separates arguments, so write `10000`,
   never the grouped form `1,0000`. Outside a call, `1,0000` is the
-  four-digit grouping separator.
+  four-digit grouping separator — **in base twelve only**. Under
+  `--input-base 10` the comma is the decimal separator instead, and base
+  ten has no grouping form at all; see `--input-base` below.
 - `^` takes non-negative integer exponents only. Anything else is written
   `exp(y * ln(x))`.
 
@@ -281,18 +283,79 @@ Add a path to write a file instead of printing: `--csv=out.csv`,
 `--csv-summary=context.csv`. The attached-value spelling is required —
 the operands are positional, so `--csv 5` would be ambiguous.
 
+### "Let me type the operands in base 10"
+
+`--input-base 10` reads the number literals you type as decimal. The output
+is **always** dozenal — this is an input setting only.
+
+```
+$ dz-cli eval "144+11" --input-base 10 --mode fixed
+10E
+
+$ dz-cli eval "0,5" --input-base 10 --mode fixed
+0;6
+```
+
+Unlike `--alphabet`, this is **not free**. In a dozenal magnitude a digit's
+position already *is* its weight, so reading `10` costs nothing; in base ten
+every weight has to be computed, and `--gates` bills you for it:
+
+```
+$ dz-cli eval "12" --input-base 10 --mode fixed --gates
+10
+gates: cycle=2904 min=3788 max=2896 lit=2088 thr=600 total=12276 depth=254 recon=0
+
+$ dz-cli eval "10" --mode fixed --gates
+10
+gates: cycle=2508 min=3206 max=2462 lit=1788 thr=528 total=10492 depth=254 recon=0
+```
+
+Same value, same arithmetic: the 1,784-gate difference is the *reading*.
+
+**The comma is the decimal separator here**, not a thousands group — it is
+what a Spanish or German numeric keypad emits. That leaves base ten with no
+grouping separator, so two separators in one literal is a loud error rather
+than a silent hundredfold:
+
+```
+$ dz-cli eval "3,14" --input-base 10 --mode fixed
+3;181E05915343X0E62X68781E (periodica en base 12, valor truncado)
+
+$ dz-cli eval "1,000,000" --input-base 10 --mode fixed
+error: base-ten input at 5: a second decimal separator -- in base ten both '.' and ',' mark the fractional part, so digits cannot be grouped: write 1000000, not 1,000,000
+```
+
+Base twelve is unaffected: its fractional separator is `;`, so there `1,0000`
+is still the four-digit grouping. Inside a function call the comma separates
+arguments in **both** bases, so a decimal argument is written with the point:
+`log_base(2.5, 2)`.
+
+A decimal fraction becomes an exact division rather than a truncated dozenal
+literal (`0.1` is `(1/↊)`), so the exactness survives to the evaluator. In the
+REPL the same setting is `:inputbase 10`.
+
 ### "Convert a result back to base 10"
 
 `chain` is the reverse of reading `--input-base 10`: it takes an
-already-formatted dozenal result (the exact text `dz-api` would print as
-`Response.display`, canonical glyphs and all -- `X`/`E` are not accepted
-here, only `0-9`/`↊`/`↋`) and rewrites it into `--input-base`, via
+already-formatted dozenal result and rewrites it into `--input-base`, via
 `dz_api::chain_operand` (`docs/09-encadenado-de-resultado.md`). It is a
 one-shot command, like `trace`/`compare`: there is no session to chain onto
 from the command line.
 
+**It reads whatever spelling this invocation prints**, which is the whole
+point: paste the result back without translating it by hand. The ASCII
+aliases are the default output, so they are the ordinary input here; the
+canonical glyphs and a configured `--alphabet` pair work too, and all three
+denote the same number.
+
 ```
+$ dz-cli chain 10E --input-base 10
+155
+
 $ dz-cli chain 10↋ --input-base 10
+155
+
+$ dz-cli chain 10b --input-base 10 --alphabet ab
 155
 ```
 
@@ -318,10 +381,25 @@ $ dz-cli chain "1/5" --input-base 10 --json
 {"ok":true,"display":"1/5","gate_count":{"cycle":0,"min":24,"max":24,"lit":24,"thr":24,"total":96}}
 ```
 
+A decimal fraction round trips exactly, which is the case worth checking
+when this looks wrong. `n.f` goes in as `nf / 10^k` with both parts
+converted and divided in base twelve, and comes back the mirror way as
+`digits / 12^k` -- no truncation on either leg:
+
+```
+$ dz-cli eval "3.14159265359" --input-base 10 --mode rational
+50X773764EE/1746996X454 (periodica en base 12)
+
+$ dz-cli chain 50X773764EE/1746996X454 --input-base 10
+314159265359/100000000000
+```
+
 `--backend` applies here too (`chain --backend crt` measures the CRT
 reconstructions of the same write-back). `--input-base 12` is legal but a
-no-op: twelve is the identity base, so the text comes back unchanged with an
-empty gate count.
+no-op on the value: twelve is the identity base, so the number comes back
+unchanged with an empty gate count -- printed in whatever `--alphabet` is
+in force, while `--json` keeps the canonical glyphs like every other
+exchange document this binary writes.
 
 ### "What can it compute?"
 

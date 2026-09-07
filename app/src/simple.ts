@@ -20,6 +20,7 @@ import {
   chainOperand,
   clearHistory,
   getSession,
+  setMode,
   type CalcResponse,
   type GateCount,
   type Operation,
@@ -111,6 +112,10 @@ let gateLine: HTMLElement;
 let gateTotal: HTMLElement;
 let gateChain: HTMLElement;
 let historyList: HTMLUListElement;
+/// The one setting this face offers: exact (rational) or expanded
+/// (fixed). Backend and working scale stay on the dozenal face -- they are
+/// research controls, and this face is not a research instrument.
+let modeSelect: HTMLSelectElement;
 let hooks: SimpleHooks;
 
 /// Whether a result is standing, so the next character can chain on it.
@@ -124,6 +129,9 @@ let copyTimer = 0;
 let copyStash: Node[] = [];
 
 function paintSession(session: Session): void {
+  // Rust owns the setting; the control only ever reflects it, so a
+  // rejected or clamped value can never leave the two disagreeing.
+  modeSelect.value = session.mode;
   renderHistory(historyList, session.history, (input) => {
     box.value = input;
     chainArmed = false;
@@ -357,6 +365,7 @@ export async function initSimpleFace(next: SimpleHooks): Promise<void> {
   gateTotal = element("s-gate-total");
   gateChain = element("s-gate-chain");
   historyList = element<HTMLUListElement>("s-history-list");
+  modeSelect = element<HTMLSelectElement>("s-mode");
 
   renderKeypad(element("s-keypad"));
 
@@ -438,6 +447,14 @@ export async function initSimpleFace(next: SimpleHooks): Promise<void> {
 
   output.addEventListener("click", () => {
     void copyResult();
+  });
+
+  // Same shape as the dozenal face's selector: set it and repaint, so the
+  // change lands on the NEXT calculation. Re-evaluating the standing result
+  // here would spend gates the user did not ask for and push a second
+  // history entry for one calculation.
+  modeSelect.addEventListener("change", async () => {
+    paintSession(await setMode(FACE, modeSelect.value));
   });
 
   element("s-gates-link").addEventListener("click", () => hooks.onShowResearch());

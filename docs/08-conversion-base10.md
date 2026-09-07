@@ -302,6 +302,31 @@ argumentos**, igual que el par de símbolos: el módulo sigue sin importar nada
 El popup dice qué caso aplica antes de convertir, para que ni `0.1 → 1/↊` en
 racional ni el truncado en fijo sorprendan.
 
+### 3.3 La coma es separador decimal, no de miles
+
+Corrección posterior, alineada con `docs/10` §3.3. La primera versión leía la
+coma como agrupación de miles (`/^[0-9]{1,3}(?:,[0-9]{3})+/`, grupos de tres
+exactos) porque en dozenal la agrupación es de cuatro y eso la hacía una
+**señal** de base 10 útil para la heurística del §2 — que el §2.4 ya derogó.
+
+Sin la heurística esa lectura solo estorba: `,` es el separador decimal de la
+mayor parte del mundo y es lo que escribe la tecla decimal de un teclado
+numérico español, así que `3,14` significa tres coma catorce, no `314`. El
+motor tomó la misma decisión para la entrada en base 10, y dos lecturas
+distintas del mismo texto era justo lo que se quería evitar.
+
+Ahora `,` y `.` introducen los dos la parte fraccionaria, y base 10 se queda
+sin forma agrupada:
+
+```
+3,14           →  igual que 3.14
+3,14159265359  →  igual que 3.14159265359
+1,000          →  1          (uno, no mil)
+```
+
+Base 12 no cambia en ninguna dirección: allí el separador fraccionario es `;`,
+así que la coma sigue libre para agrupar de cuatro en cuatro.
+
 ---
 
 ## 4. Alcance

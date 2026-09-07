@@ -88,14 +88,22 @@ impl Default for Session {
 }
 
 impl Session {
-    /// The simple face's fixed settings: base ten in, rational mode, MVL,
-    /// the default scale.
+    /// The simple face's starting settings: base ten in, rational mode,
+    /// MVL, the default scale.
     ///
-    /// Rational is the load-bearing one. It is the exact mode, so a
-    /// displayed result is always `n` or `n/d` -- two integers -- and the
-    /// conversion back to base ten for chaining (`docs/10` section 3.1)
-    /// never has to face the fixed-point case, where the value is
-    /// `magnitude / 12^scale` and often has no finite decimal form.
+    /// Base ten is the pinned one -- it is what this face *is*, and no
+    /// control offers to change it. The mode is only a **default**: the
+    /// face offers exact/decimal, because an expansion is what a reader
+    /// usually wants to see and withholding it made the simple face less
+    /// useful than the calculator it simplifies (`docs/10` section 8.7).
+    ///
+    /// Rational stays the default because it is the exact mode: a result
+    /// is then always `n` or `n/d`, two integers, so chaining back to base
+    /// ten (`docs/10` section 3.1) never meets the fixed-point case, where
+    /// the value is `magnitude / 12^scale` and usually has no finite
+    /// decimal form. In `fixed` that case is reachable and chaining seeds
+    /// an exact fraction instead of a tidy decimal -- still correct, and
+    /// the honest price of showing an expansion.
     fn simple() -> Session {
         Session {
             input_base: InputBase::Ten,

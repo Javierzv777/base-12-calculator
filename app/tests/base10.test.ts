@@ -136,10 +136,16 @@ check("call still suggests", suggestion("sqrt(144)"), "sqrt(100)");
 
 // --- prose is not an expression ------------------------------------------
 
-// --- three-digit thousands grouping is a base-10 tell --------------------
-check("thousands value", suggestion("1,000"), "6↋4");
-// Dozenal grouping is four digits: leave it alone.
-check("dozenal grouping stays quiet", suggestion("1,0000"), null);
+// --- the comma is the decimal separator, not a thousands group -----------
+// `,` is the decimal separator for most of the world and is what a Spanish
+// numeric keypad emits, so base ten spends its comma on the fractional part
+// and has none left over for grouping (`docs/10` section 3.3). Reading it as
+// a group is what made `3,14` mean `314` -- a hundredfold, in silence.
+check("comma is a decimal separator", suggestion("3,14"), suggestion("3.14"));
+check("comma, long fraction", suggestion("3,14159265359"), suggestion("3.14159265359"));
+// So `1,000` is one, not one thousand.
+check("comma tenths are not thousands", suggestion("1,000"), suggestion("1.000"));
+check("comma tenths value", suggestion("1,000"), "1");
 
 // --- the configured symbol pair is honoured in the output ----------------
 check("configured pair in output", suggestion("11", { ...CANONICAL, ten: "X", eleven: "E" }), "E");

@@ -40,10 +40,24 @@
 //!     of letters that the canonical lexer would read as a *number*
 //!     (`E`, `XE`) is exactly the run base ten has to reject; a run it
 //!     reads as a name (`abs`, `exp`, `tan`) is passed through untouched.
-//!   - [`crate::lexer::CallParens`] decides what a comma means. Inside a
-//!     call it separates arguments and therefore ends a literal; outside
-//!     one it is the cosmetic grouping separator and is dropped, so
-//!     `1,000,000` reads as one seven-digit decimal number.
+//!   - [`crate::lexer::CallParens`] decides what a comma means *inside* a
+//!     call: there it separates arguments and therefore ends a literal, so
+//!     a decimal argument is written with the point (`log_base(2.5, 2)`).
+//!
+//! Outside a call the comma parts company with the dozenal lexer, and
+//! deliberately. In base twelve the fractional separator is the Humphrey
+//! point `;`, which leaves the comma free to be the cosmetic four-digit
+//! grouping separator. Base ten has no such spare character: `,` is the
+//! decimal separator for most of the world -- it is what a Spanish or
+//! German numeric keypad emits -- so here **`,` and `.` both mark the
+//! fractional part**, and a literal carrying two of them is refused rather
+//! than guessed at.
+//!
+//! That costs base ten its grouping separator, which is the right trade:
+//! grouping is cosmetic and `1000000` is always available, while reading
+//! `3,14` as `314` is a silently wrong answer a hundred times too big.
+//! Base twelve keeps `1,0000` untouched, because there the two roles never
+//! collided in the first place.
 //!
 //! ## The one simplification, stated as such
 //!
@@ -131,7 +145,9 @@ impl std::fmt::Display for InputBaseError {
             ),
             InputBaseError::SecondPoint { position } => write!(
                 f,
-                "base-ten input at {}: unexpected second decimal point",
+                "base-ten input at {}: a second decimal separator -- in base ten both '.' \
+                 and ',' mark the fractional part, so digits cannot be grouped: write \
+                 1000000, not 1,000,000",
                 position
             ),
         }
@@ -157,6 +173,12 @@ fn dozenal_text(value: &Dz) -> String {
 /// For [`InputBase::Twelve`] this is the identity and touches no gate. For
 /// [`InputBase::Ten`] every number literal is converted with
 /// `dz_int::from_base10_digits`, so `g` is charged for the reading.
+///
+/// The fractional part is introduced by `.` **or** `,` -- see the module
+/// docs for why base ten gives up its grouping separator to get the comma
+/// -- and a literal carrying two separators is [`InputBaseError::SecondPoint`]
+/// rather than a guess. Inside a call the comma is still the argument
+/// separator, so a decimal argument is written `log_base(2.5, 2)`.
 ///
 /// A literal with a fractional part becomes a parenthesised division
 /// `(n/10^k)` rather than a dozenal fraction, because most decimal
@@ -217,7 +239,7 @@ pub fn to_dozenal_text<G: DozGates>(
         if c == POINT {
             return Err(InputBaseError::HumphreyPoint { position: i });
         }
-        if c.is_ascii_digit() || c == '.' {
+        if c.is_ascii_digit() || c == '.' || (c == ',' && !parens.in_call()) {
             let in_call = parens.in_call();
             let start = i;
             let mut int_digits = Vec::new();
@@ -225,14 +247,16 @@ pub fn to_dozenal_text<G: DozGates>(
             let mut seen_point = false;
             while i < chars.len() {
                 let cc = chars[i];
-                if cc == ',' {
-                    if in_call {
-                        break; // argument separator, not grouping
-                    }
-                    i += 1;
-                    continue;
+                if cc == ',' && in_call {
+                    // Inside a call the comma separates arguments and so
+                    // ends the literal, exactly as it does for the dozenal
+                    // lexer. A decimal argument is written with the point.
+                    break;
                 }
-                if cc == '.' {
+                if cc == '.' || cc == ',' {
+                    // Both spellings of the decimal separator. Base ten has
+                    // no grouping separator left over, which is why a second
+                    // one is an error instead of a silent hundredfold.
                     if seen_point {
                         return Err(InputBaseError::SecondPoint { position: i });
                     }
@@ -273,9 +297,10 @@ pub fn to_dozenal_text<G: DozGates>(
                 break;
             }
             if int_digits.is_empty() && frac_digits.is_empty() {
-                // A lone '.', which the dozenal lexer will reject with its
-                // own "unexpected character" message.
-                out.push('.');
+                // A lone separator with no digit on either side, copied as
+                // it was typed and left to the dozenal lexer's own
+                // "unexpected character" message.
+                out.push(chars[start]);
                 i = start + 1;
                 after_ident = false;
                 continue;
@@ -372,9 +397,19 @@ fn base10_text<G: DozGates>(g: &G, value: &Dz) -> String {
 ///     where `0.1` came back as `1/↊` rather than a truncated dozenal.
 ///
 /// Everything that is not a digit run -- the sign, the fraction bar, the
-/// `~` approximation marker, `Inf`/`NaN` -- is copied through. Formatted
-/// output contains no identifiers that could be mistaken for digits, which
-/// is what makes this direction so much simpler than the way in.
+/// `~` approximation marker, `Inf`/`NaN` -- is copied through. What tells
+/// the two apart is [`crate::lexer::is_identifier_run`], the same rule the
+/// way in borrows: a run of letters is a *name* only when one of its
+/// letters is not a digit alias.
+///
+/// It has to be that rule and not `char::is_ascii_alphabetic`, because
+/// `X`/`T`/`E` **are** digits and are the ordinary shape of a result --
+/// `dz-cli` prints the ASCII aliases unless `--unicode` is given. Treating
+/// every letter as a non-digit splits `50X773764EE` into three separate
+/// magnitudes with the letters copied through as if they were operators,
+/// and emits a mixed-base string that is silently wrong. `Inf` and `NaN`
+/// are the only names formatted output can contain, and no letter of
+/// either is an alias, so the rule separates them cleanly.
 pub fn from_dozenal_text<G: DozGates>(
     g: &G,
     base: InputBase,
@@ -386,13 +421,26 @@ pub fn from_dozenal_text<G: DozGates>(
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
     let mut i = 0usize;
+    // The lexer's identifier-vs-number rule, asked of a run of letters:
+    // true for `Inf`/`NaN`, false for `X`, `E`, `XE`, which are digits.
+    let starts_a_name = |chars: &[char], at: usize| -> bool {
+        let run = letter_run(chars, at);
+        run > 0 && is_identifier_run(chars, at, run)
+    };
     while i < chars.len() {
         let c = chars[i];
-        if char_to_digit(c).is_none() || c.is_ascii_alphabetic() {
-            // Not the start of a number: a sign, a bar, `~`, a space, or a
-            // letter of `Inf`/`NaN`. The alphabetic guard matters because
-            // `char_to_digit` accepts the legacy `X`/`E` aliases, which
-            // formatted output never uses.
+        if starts_a_name(&chars, i) {
+            let run = letter_run(&chars, i);
+            let mut k = 0usize;
+            while k < run {
+                out.push(chars[i + k]);
+                k += 1;
+            }
+            i += run;
+            continue;
+        }
+        if char_to_digit(c).is_none() {
+            // Not the start of a number: a sign, a bar, `~`, a space.
             out.push(c);
             i += 1;
             continue;
@@ -407,7 +455,8 @@ pub fn from_dozenal_text<G: DozGates>(
                 i += 1;
                 continue;
             }
-            if cc.is_ascii_alphabetic() {
+            if starts_a_name(&chars, i) {
+                // A name begins here, so the magnitude ended.
                 break;
             }
             match char_to_digit(cc) {
@@ -474,11 +523,52 @@ mod tests {
     }
 
     #[test]
-    fn the_grouping_comma_survives_but_the_argument_comma_ends_the_number() {
-        // Outside a call the comma groups digits, so this is one million.
-        assert_eq!(ten("1,000,000"), ten("1000000"));
-        // Inside one it separates arguments, so these stay two numbers.
-        assert_eq!(ten("log_base(100,10)"), "log_base(84,↊)");
+    fn the_comma_is_the_decimal_separator_but_still_ends_an_argument() {
+        // Outside a call the comma marks the fractional part, exactly as
+        // the point does: this is what a Spanish numeric keypad emits.
+        assert_eq!(ten("3,14"), ten("3.14"));
+        assert_eq!(ten("0,5"), "(5/↊)");
+        assert_eq!(ten(",5"), ten(".5"));
+        assert_eq!(ten("3,14159265359"), ten("3.14159265359"));
+        // Inside one it separates arguments, so these stay two numbers and
+        // a decimal argument is written with the point. The name is `log`,
+        // which the catalog actually registers -- `log_base` is only the
+        // internal `dz-sci` symbol, and `_` is not a character this
+        // language lexes at all.
+        assert_eq!(ten("log(100,10)"), "log(84,↊)");
+        // 2.5 is 25/10, which is 21/↊ in dozenal numerals.
+        assert_eq!(ten("log(2.5, 2)"), "log((21/↊), 2)");
+    }
+
+    /// Base ten has no separator left over for grouping, so `1,000,000` is
+    /// a loud error rather than a silent one-million. Reading it as
+    /// grouping is what made `3,14` mean `314` -- a hundredfold, in
+    /// silence, from one keystroke a Spanish keypad produces by default.
+    #[test]
+    fn a_second_decimal_separator_is_refused_instead_of_grouped() {
+        let g = MvlGates::new();
+        for text in ["1,000,000", "1.000.000", "3,14.15", "1.2,3"] {
+            let error = to_dozenal_text(&g, InputBase::Ten, text)
+                .expect_err("two separators in one literal");
+            assert!(
+                matches!(error, InputBaseError::SecondPoint { .. }),
+                "{}: {:?}",
+                text,
+                error
+            );
+            assert!(error.to_string().contains("second decimal separator"));
+        }
+    }
+
+    /// Base twelve is untouched: there the fractional separator is `;`, so
+    /// the comma never had a second job and stays the four-digit grouping.
+    #[test]
+    fn base_twelve_keeps_the_grouping_comma() {
+        let g = MvlGates::new();
+        for text in ["1,0000", "1,000,000", "4;6"] {
+            assert_eq!(to_dozenal_text(&g, InputBase::Twelve, text).unwrap(), text);
+        }
+        assert_eq!(g.cost().total(), 0);
     }
 
     #[test]
@@ -531,6 +621,58 @@ mod tests {
         // 100 + ↋ = 103 dozenal, which is 147 in decimal -- not 103.
         assert_eq!(back("103"), "147");
         assert_ne!(back("103"), "103");
+    }
+
+    /// `dz-cli` prints the ASCII aliases unless `--unicode` is given, so
+    /// `X`/`E` are the ordinary shape of a result, not a legacy spelling.
+    /// Reading a letter as "not a digit" split the magnitude at every
+    /// alias and copied the letters through as if they were operators:
+    /// `50X773764EE` came back as `60X1893244EE`, a mixed-base string that
+    /// no error ever announced.
+    #[test]
+    fn the_ascii_aliases_are_digits_on_the_way_back() {
+        // Pi to eleven decimal places, as the terminal prints it.
+        assert_eq!(back("50X773764EE/1746996X454"), "314159265359/100000000000");
+        // The canonical spelling of the same value must agree exactly.
+        assert_eq!(
+            back("50X773764EE/1746996X454"),
+            back("50↊773764↋↋/1746996↊454")
+        );
+        // A magnitude that is nothing but aliases.
+        assert_eq!(back("XE"), "131");
+        assert_eq!(back("XE"), back("↊↋"));
+        // `T` is the alternate spelling of ten and reads the same.
+        assert_eq!(back("TE"), back("↊↋"));
+        // An alias inside the fractional part.
+        assert_eq!(back("0;X"), back("0;↊"));
+    }
+
+    /// `Inf`/`NaN` are the only names formatted output can hold, and no
+    /// letter of either is a digit alias -- which is exactly what lets the
+    /// lexer's rule keep them whole while still reading `XE` as a number.
+    #[test]
+    fn the_only_names_in_formatted_output_survive_intact() {
+        assert_eq!(back("Inf"), "Inf");
+        assert_eq!(back("-Inf"), "-Inf");
+        assert_eq!(back("NaN"), "NaN");
+    }
+
+    /// The round trip has to close through the ASCII spelling too, which
+    /// is the one a user actually copies out of a terminal.
+    #[test]
+    fn a_round_trip_closes_through_the_ascii_spelling() {
+        for decimal in ["10", "11", "23", "131", "144", "987654321"] {
+            let dozenal = ten(decimal);
+            let ascii: String = dozenal
+                .chars()
+                .map(|c| match c {
+                    '↊' => 'X',
+                    '↋' => 'E',
+                    other => other,
+                })
+                .collect();
+            assert_eq!(back(&ascii), decimal, "{} via {}", decimal, ascii);
+        }
     }
 
     #[test]
