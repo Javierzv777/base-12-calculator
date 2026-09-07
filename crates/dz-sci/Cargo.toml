@@ -3,6 +3,7 @@ name = "dz-sci"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+license.workspace = true
 
 [dependencies]
 dz-gates = { path = "../dz-gates" }

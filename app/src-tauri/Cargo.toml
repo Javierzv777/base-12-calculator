@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Investigacion Base 12"]
 description = "Dozenal (base 12) calculator built from 12-valued logic gates"
+license = "Apache-2.0"
 
 # Deliberately its own workspace, not a member of the root one: the core
 # crates must keep building and testing in seconds without dragging in

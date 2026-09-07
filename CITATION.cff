@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "Si usas este software o sus resultados medidos, por favor cítalo así."
+title: "Investigación Base 12: una calculadora dozenal construida desde puertas lógicas de 12 valores"
+abstract: >-
+  Calculadora dozenal (base 12) en la que ninguna operación aritmética se
+  delega a los operadores nativos del lenguaje: suma, multiplicación,
+  división y comparación se componen desde primitivas de lógica
+  12-valuada (cycle, min, max, lit, thr). El proyecto instrumenta cada
+  llamada con su conteo de puertas y su profundidad de circuito, lo que
+  permite medir el coste real de decisiones de representación —entre
+  ellas, que la descomposición CRT (Z12 = Z4 x Z3) no compensa frente a
+  la lógica multivaluada directa, y cuánto cuesta leer y escribir base 10
+  cuando la representación interna es base 12.
+type: software
+authors:
+  - family-names: Zapata
+    given-names: Javier
+    email: javierzv777@gmail.com
+version: 0.1.0
+date-released: "2026-09-06"
+license: Apache-2.0
+repository-code: "https://github.com/Javierzv777/base-12-calculator"
+keywords:
+  - dozenal
+  - base-12
+  - multi-valued-logic
+  - gate-count
+  - circuit-depth
+  - computer-arithmetic
+  - rust
