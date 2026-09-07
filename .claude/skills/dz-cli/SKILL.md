@@ -17,11 +17,11 @@ runs, not reconstructed.
 
 ## 1. How to invoke it
 
-`cargo` is not on the PATH:
+`cargo` is often not on the PATH:
 
 ```powershell
 $env:PATH += ";$env:USERPROFILE\.cargo\bin"     # powershell
-export PATH="$PATH:/c/Users/ADMIN/.cargo/bin"   # bash
+export PATH="$PATH:$HOME/.cargo/bin"            # bash
 ```
 
 Then either of:
@@ -34,8 +34,48 @@ target/release/dz-cli <args>          # after one build
 **Use `--release`.** In a debug build a transcendental function takes
 minutes; in release `sin(1)` at scale 12 returns in well under a second.
 
-With no arguments the binary starts an interactive REPL instead. An agent
-wants the one-shot form.
+With no arguments the binary starts an interactive REPL instead. **An agent
+wants the one-shot form** — the REPL waits on stdin and would simply block.
+
+Nothing is installed, activated or left running: each invocation is its own
+process that prints and exits. It is also **stateless**, so every setting
+has to be repeated on every call. There is no "set fixed mode once":
+
+```
+$ dz-cli eval "1/5" --mode fixed
+0;249724972497249724972497 (periodica en base 12, valor truncado)
+
+$ dz-cli eval "1/5"
+1/5 (periodica en base 12)          <- back to the rational default
+```
+
+That is `dz-api` being stateless by design (a session is an interface
+concept, and a one-shot invocation has none), and it is a feature here:
+every command is reproducible on its own, with no hidden state to explain
+why the same line gave two answers.
+
+### Running it on a machine without Rust
+
+The CLI is a **separate binary from the GUI** — `dz-gui.exe` does not
+contain it. To carry just the calculator to another machine, build it with
+the C runtime linked statically and copy the one file:
+
+```bash
+RUSTFLAGS="-C target-feature=+crt-static" \
+  cargo build -p dz-cli --release --target x86_64-pc-windows-msvc
+# -> target/x86_64-pc-windows-msvc/release/dz-cli.exe   (~1.0 MB)
+```
+
+| build | size | external DLLs |
+|---|--:|---|
+| default | ~916 KB | `VCRUNTIME140.dll`, `api-ms-win-crt-*` |
+| `+crt-static` | ~1.0 MB | none beyond `KERNEL32`/`ntdll`/`bcryptprimitives`/`dbghelp` |
+
+Those remaining four ship with every Windows 10/11, so the static build
+runs with nothing installed. Copy this SKILL.md next to it when the
+repository is not on that machine — `--help` lists the commands, but the
+traps in section 2 and the reading rules in section 5 are only here, and
+they are what stop an agent reporting "the three backends cost the same".
 
 ## 2. The alphabet
 

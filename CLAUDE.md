@@ -45,6 +45,11 @@ cargo run -p dz-cli -- trace mul 25 34 --csv  # CSV a stdout; --csv=ruta a fiche
 cargo run -p dz-gates --example gate_counts   # conteos de puertas
 pwsh tools/lint-purity.ps1          # lint de pureza (4 reglas)
 
+# CLI portable: un solo .exe, sin dependencias externas ni instalación
+RUSTFLAGS="-C target-feature=+crt-static" \
+  cargo build -p dz-cli --release --target x86_64-pc-windows-msvc
+# -> target/x86_64-pc-windows-msvc/release/dz-cli.exe  (~1,0 MB)
+
 cd app && npm install               # una vez (Vite + @tauri-apps/*)
 npm run tauri dev                   # GUI en desarrollo
 npm run tauri build                 # instalador; --no-bundle para solo el .exe
@@ -332,6 +337,16 @@ trazados corren la instanciación `Values`, que no lleva niveles.
 
 `.claude/skills/dz-cli/SKILL.md` es el skill que describe todo esto para un
 agente; sus ejemplos están copiados de corridas reales del binario.
+
+**El CLI es un binario aparte del de la GUI**: `dz-gui.exe` no lo contiene.
+Compilado con `+crt-static` (ver Comandos) sale un único `.exe` de ~1,0 MB
+cuyas únicas dependencias son `KERNEL32`/`ntdll`/`bcryptprimitives`/
+`dbghelp`, presentes en cualquier Windows 10/11 — así que corre en otra
+máquina sin instalar nada. Sin `+crt-static` arrastra `VCRUNTIME140.dll`,
+que suele estar pero no está garantizado. Para que un agente lo use *bien*
+en una máquina sin el repo hay que llevarse también el SKILL.md: `--help`
+lista los comandos, pero las trampas del alfabeto y cómo leer la columna
+`recon` solo están ahí.
 
 ### `app/` — Capa 6, GUI Tauri
 

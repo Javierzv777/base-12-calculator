@@ -65,6 +65,31 @@ result: 1000
 `;` es el punto Humphrey (`4;6` es cuatro y medio) y los dígitos son
 `0-9` más `↊` (diez) y `↋` (once), con alias ASCII `X`/`E`.
 
+### CLI portable
+
+El CLI es un binario **aparte** del de la GUI. Compilado con el runtime de
+C enlazado estáticamente sale un único `.exe` que corre en otra máquina sin
+instalar nada:
+
+```bash
+RUSTFLAGS="-C target-feature=+crt-static" \
+  cargo build -p dz-cli --release --target x86_64-pc-windows-msvc
+# -> target/x86_64-pc-windows-msvc/release/dz-cli.exe   (~1,0 MB)
+```
+
+Sus únicas dependencias son `KERNEL32`, `ntdll`, `bcryptprimitives` y
+`dbghelp`, que vienen con cualquier Windows 10/11. Sin `+crt-static`
+arrastra además `VCRUNTIME140.dll`.
+
+Cada invocación es un proceso independiente que imprime y termina: no hay
+servicio, ni instalación, ni estado entre llamadas. Los ajustes
+(`--mode`, `--backend`, `--scale`) se repiten en cada una — es `dz-api`
+siendo sin estado a propósito, y hace que cada comando sea reproducible
+por sí solo.
+
+Sin argumentos abre un REPL interactivo, que es para teclear a mano: un
+agente quiere la forma de una invocación.
+
 ## Hallazgos medidos
 
 Lo interesante del proyecto no es que funcione, sino lo que se puede
