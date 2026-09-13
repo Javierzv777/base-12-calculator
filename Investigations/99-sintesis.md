@@ -5,11 +5,11 @@ hipótesis de `planteamientos.md`. Cuatro líneas (A constantes, B lugares,
 C análisis, D dozenal) corrieron en paralelo contra el mismo protocolo, con el
 calculador de puertas de este repositorio como instrumento. Los informes
 completos están en `01-hallazgos-{A,B,C,D}-*.md`; las cifras compartidas y las
-trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `07`
+trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `08`
 son extensiones posteriores al cierre, abiertas por preguntas del usuario sobre
-hallazgos concretos; cada una está resumida en §4.5, §4.6 y §4.7.
+hallazgos concretos; cada una está resumida en §4.5, §4.6, §4.7 y §4.8.
 
-Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-09-13 (`07`).
+Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-09-13 (`07` y `08`).
 
 ---
 
@@ -229,6 +229,35 @@ P6 con `p > 3`, reparto 23/28/27/29 en `{1, 5, 7, ↋}`. Es un hecho conocido
   decimal las cinco medias se amontonan entre 12,06 y 16,00 sin bandas
   visibles.
 
+**Ampliación posterior a `n ≤ 1.000.000`** (criba propia, 78.498 primos, 499.999
+pares; el script vive fuera del repositorio, como `app/src/base10.ts`, porque no
+es aritmética dozenal sino conteo de primos). El `1,87` de arriba era ruido de
+muestra pequeña: la razón real converge al 2 teórico, y el emparejamiento por
+clase es exacto hasta el céntimo.
+
+| último dígito (base 12) | media `g(n)` | `n mod 3` |
+|---|--:|--:|
+| `0` | 5.015,35 | 0 |
+| `6` | 5.015,34 | 0 |
+| `4` | 2.515,17 | 1 |
+| `↊` | 2.515,30 | 1 |
+| `2` | 2.500,84 | 2 |
+| `8` | 2.500,62 | 2 |
+
+Banda alta / banda baja = **1,999754** contra el 2 que predice
+`(3−1)/(3−2)`. Que `0` y `6` coincidan en `5.015,3` sobre 83.333 valores cada
+uno no es una banda que se intuya en un dibujo: es la comprobación numérica de
+que el último dígito dozenal **es** `n mod 3`.
+
+Y la comparación honesta, que la versión corta de arriba no daba: **base 10
+también tiene banda** —los acabados en `0`, razón **1,3332**— porque su último
+dígito delata el 5, con factor `(5−1)/(5−2) = 4/3`. Cada base enseña su propio
+primo impar. Base 12 gana por dos razones medibles, no por magia: su factor es
+mayor (2 contra 4/3) y más frecuente (un tercio de los pares contra un quinto).
+Residuo declarado: dentro de los no múltiplos de 3, `{4,↊}` queda un 0,58%%
+por encima de `{2,8}` sin que la teoría prediga diferencia; era 1,09%% midiendo
+hasta 250.000, así que es efecto de rango finito.
+
 Esto último es lo mejor de la línea y merece nombrarse con precisión: es una
 **mejora de visualización de un hecho conocido** (el factor de Hardy–Littlewood
 depende de los divisores pequeños de `n`, y 12 los expone en el último dígito).
@@ -437,6 +466,89 @@ razón por la que la reverificación se hizo.
 
 ---
 
+### 4.8 ¿Una familia de normas con `π_k` racional que converja a π? Sí — y por eso mismo no vale nada
+
+La pregunta la trajo el usuario en su forma más ambiciosa: construir geometrías
+`G₁, G₂, G₃, …` cuya «circunferencia» unidad sea un polígono de `n_k` lados
+(propuesta: `n_k = 4^k`), con `π_k = P_k/2r_k` **racional en cada etapa** y
+`π_k → π`. Se atacó en `08-hallazgo-familia-normas-pi-racional.md` partiendo de
+§4.7 como resultado establecido, no rederivándolo.
+
+**La mitad de la pregunta ya estaba contestada, y en contra.** §1.8 clasifica la
+familia regular por completo: `16, 64, 256` son todos `≡ 0 (mod 4)`, caen en la
+rama `n·tan(π/n)`, y Niven la cierra en `n=4`. **La familia `‖·‖₄, ‖·‖₁₆, ‖·‖₆₄`
+de polígonos regulares no existe, y está demostrado que no.** Y `4^k` resulta no
+tener ninguna justificación: no es una bisección, no corresponde a ningún paso
+constructivo, y cada término ≥16 vive en la rama irracional y no robusta. El
+sustituto con estructura es `2·3^(k+1)` = 6, 18, 54, 162 — la única sucesión
+multiplicativa que nunca abandona la rama `n ≡ 2 (mod 4)`, la robusta. (Nota: la
+sucesión `6·2^k` de Arquímedes **sí** la abandona, y en su primer paso.)
+
+**La otra mitad estaba abierta y se cerró afirmativamente, en el peor sentido
+posible.** `07` §6 declaraba sin explorar el espacio de convexos centralmente
+simétricos **no regulares**, donde los vértices son parámetros continuos y la
+rigidez de Niven desaparece. Ahí `08` demuestra dos cosas:
+
+- **Continuidad** (Prop. 2): `π_B` varía continuamente con los vértices — y el
+  documento señala el punto exacto donde el argumento ingenuo falla (hay que
+  aplicar la desigualdad triangular inversa **dentro de la norma que se mueve**
+  antes de comparar cuerpos, porque el gauge cambia cuando cambia el cuerpo).
+  Consecuencia: para todo `2m ≥ 8` el conjunto alcanzable de `π_B` es
+  exactamente el intervalo abierto `(3,4)`, ya que los dos extremos de Gołąb son
+  rígidos en 4 y 6 lados.
+- **Teorema A**, que es más barato que el TVI y más destructivo: *todo polígono
+  convexo centralmente simétrico con vértices racionales tiene `π_B ∈ ℚ`* — los
+  funcionales de arista salen de sistemas 2×2 racionales, luego
+  `‖w‖_B = max_j ⟨u_j, w⟩` es un máximo de racionales. **La racionalidad es una
+  propiedad del papel, no del cuerpo**, y es tautológica sobre un conjunto denso.
+
+Con eso la sucesión pedida existe —cascos convexos de puntos racionales del
+círculo: `π_k ∈ ℚ` por el Teorema A, `π_k → π` por continuidad— y hay
+construcciones explícitas de 16 y 64 lados con `π_B = 22/7` exacto, verificadas
+por dos vías independientes. El precio, que es el hallazgo:
+
+| lo que se pierde | detalle |
+|---|---|
+| unicidad | una variedad de dimensión 11 de 16-gonos por cada valor objetivo |
+| isotropía | ningún n-ágono regular tiene vértices racionales salvo `n = 3, 4, 6` |
+| canonicidad | hay un continuo de sucesiones válidas, ninguna privilegiada |
+| **honestidad del método** | los polígonos de `22/7` **reciben el número objetivo como entrada de una ecuación lineal** — el movimiento que §1 del plan prohíbe, en su forma más literal |
+
+Y como método de aproximación es catastrófico: a error `≈1,2·10⁻³` el racional
+del 96-gono necesita **278 cifras de denominador**, frente a **1** de `22/7`;
+en el paso siguiente la penalización es ×294. La razón es estructural: el error
+decae como `π³/(3n²)` —cuadrático en `n`— mientras el denominador crece
+**exponencialmente** (es el producto de las hipotenusas pitagóricas usadas).
+**No es un método de aproximación: es una reformulación geométrica de la
+densidad de ℚ.**
+
+**Y el sabor dozenal sale negativo, no neutro** (Prop. 4, hallazgo nuevo): los
+puntos racionales del círculo tienen denominadores de la forma `p²+q²`, y
+**ningún número de esa forma es divisible por 3** (si `3 | p²+q²` con
+`gcd(p,q)=1`, los cuadrados mód 3 fuerzan `p ≡ q ≡ 0`, contradicción). Sus
+factores primos son 2 y los `≡ 1 (mod 4)`, lista que **empieza por 5**. De ahí
+que `3/5` y `4/5` terminen en base 10 y **no** en base 12: en la aritmética
+natural de esta construcción **base 10 es estrictamente mejor que base 12**.
+No es casualidad — **esta construcción *son* ternas pitagóricas**, el dominio
+que §1 ya había identificado como hostil a la base 12.
+
+**Veredicto por partes:** *verdadero* — existe la familia racional convergente a
+π, y está construida; *falso y demostrado falso* — la versión con polígonos
+regulares y cualquier justificación de `4^k`; *verdadero pero vacío* — la versión
+no regular, por el Teorema A; *abierto* — qué caracteriza realmente a los cuerpos
+con `π_B ∈ ℚ`, y si algún 64-gono de coordenadas pequeñas alcanza `22/7`.
+
+La moraleja enlaza con §4.7 y la completa. Allí se distinguió la racionalidad
+**barata** de la familia `Lp` (parámetro continuo, el TVI la regala) de la
+**rígida** del hexágono (parámetro discreto, Niven la caracteriza entera). Este
+documento muestra el caso extremo de la barata: cuando se puede pedir cualquier
+racional, obtenerlo deja de ser información. **Los únicos dos racionales que
+significan algo en toda la historia siguen siendo los que no se eligieron: el 4
+del paralelogramo y el 3 del hexágono, y son las paredes del intervalo de
+Gołąb, no puntos de su interior.**
+
+---
+
 ## 5. Lo que la investigación aprendió sobre su propio instrumento
 
 Tres hallazgos sobre el calculador, no sobre la geometría. Van aquí porque
@@ -506,6 +618,10 @@ Para que nadie lea aquí más de lo que hay:
 - Comparar el coste de d₁ y d₂ es legítimo solo donde el problema admite de
   verdad las dos métricas (rutas en retícula). Donde el problema pide distancia
   euclidiana, `5` y `7` no son dos respuestas a la misma pregunta.
+- No se contrastó nada de esto con la literatura. Gołąb es de 1932 y la geometría
+  de Minkowski lleva setenta años de trabajo publicado: la dicotomía mod 4 de
+  §4.7 y el Teorema A de §4.8 son **probablemente redescubrimientos**, y este
+  documento no está en condiciones de afirmar lo contrario.
 - De la familia de cuerpos con simetría 12, solo se examinaron n-ágonos regulares
   y su extensión prismática. El espacio de convexos centralmente simétricos con
   `D₆` o `D₁₂` **sin** ser regulares queda sin explorar (`07` §6), y la
