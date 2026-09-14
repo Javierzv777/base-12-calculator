@@ -5,13 +5,14 @@ hipótesis de `planteamientos.md`. Cuatro líneas (A constantes, B lugares,
 C análisis, D dozenal) corrieron en paralelo contra el mismo protocolo, con el
 calculador de puertas de este repositorio como instrumento. Los informes
 completos están en `01-hallazgos-{A,B,C,D}-*.md`; las cifras compartidas y las
-trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `10`
+trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `11`
 son extensiones posteriores al cierre, abiertas por preguntas del usuario sobre
-hallazgos concretos; cada una está resumida en §4.5, §4.6, §4.7, §4.8, §4.9 y §4.10.
+hallazgos concretos; cada una está resumida en §4.5, §4.6, §4.7, §4.8, §4.9,
+§4.10 y §4.11.
 
-Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-09-14 (`09` y `10`,
-la lista de "ingredientes" abierta por la reinterpretación de la afirmación de
-Kryon sobre π — ver §4.9 y §4.10 para el contexto).
+Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-09-14 (`09`, `10`
+y `11`, la lista de "ingredientes" abierta por la reinterpretación de la
+afirmación de Kryon sobre π — ver §4.9-§4.11 para el contexto).
 Revisión crítica aplicada: 2026-09-13 (ver §8).
 
 ---
@@ -767,6 +768,77 @@ potencial, no porque «corrija» nada), y al someterla a la prueba de L₁ que
 exige el protocolo de esta serie, el resultado se revierte — es el caso
 euclidiano el limpio.
 
+### 4.11 ¿Evita π cambiar de sistema numérico? Ni sí ni no — la pregunta no se traslada
+
+Tercero de la lista (`11-hallazgo-padico-ingrediente3.md`): en vez de tocar
+métrica, χ o aditividad, cambiar el propio **sistema numérico métrico** — de
+ℝ a `ℚ_p`, los números p-ádicos, con la métrica ultramétrica
+`d(x,y) = max(d(x,z), d(z,y))`. Es la candidata más cercana a lo que Kryon
+llama vagamente «multidimensional», pero es teoría de números real y bien
+establecida, no física especulativa.
+
+**El resultado es de una tercera categoría, distinta de `09` (negativo) y
+`10` (positivo con matiz).** Derivado desde la desigualdad ultramétrica: todo
+punto de una bola es su centro, dos bolas son disjuntas o anidadas, las bolas
+son clopen — de donde `ℚ_p` es **totalmente disconexo**: no hay curvas
+continuas no constantes, y por tanto nada que rectificar. La «esfera»
+`S(a,r)` sí existe pero es unión de `p−1` subbolas (árbol `p`-ario de
+Bruhat–Tits), no una curva: no hay perímetro que definir, no porque no se
+haya encontrado, sino porque el objeto no existe.
+
+Lo que sí existe y se derivó con rigor, sin ningún π:
+
+- **Medida de Haar**: `μ(p^kℤ_p) = p^{-k}`, exacta, aditiva, deducida
+  contando clases residuales. `μ(ℤ_p^*) = 1−1/p`, verificado con el binario
+  para `p=2,3,5` (`1-1/2`, `1-1/3`, `1-1/5` → `1/2`, `2/3`, `4/5`). Es
+  geometría sin π real — pero mide **volumen**, no responde a la pregunta del
+  círculo: no hay «razón perímetro/diámetro» p-ádica con la que contrastarla.
+- **Conteo de subbolas**: exactamente `p`, entero, sin cuadrado — porque no
+  hay dimensión 2 con rotación isótropa continua (mismo mecanismo que hace
+  que L∞ tampoco tenga π: §3.1 y §4.10 §4.4 ya lo habían visto desde otro
+  ángulo).
+- **Dimensión de Hausdorff de `ℚ_p`**: derivada desde cero, sale
+  **exactamente 1** para cualquier primo — entero limpio, no un exponente
+  fractal feo, y coincide con la medida de Haar en el punto crítico.
+
+**Veredicto central**: la pregunta «¿cuánto vale π aquí?» no tiene referente
+en `ℚ_p`, porque el objeto que genera π —curva rectificable, o grupo de
+rotación continuo `SO(2)`— no existe en un espacio totalmente disconexo. No
+es que π reaparezca disfrazado (como en `09`) ni que desaparezca con precio
+(como en `10`): no hay fórmula que plantear. Se declara una categoría
+explícita, **(IV) pregunta no trasladable**, distinta de (I)/(II)/(III).
+
+**Base 12, con conexión genuina por primera vez en la lista de ingredientes.**
+`12` no es primo, así que no hay `ℚ_12` como cuerpo — pero sí el anillo de
+enteros 12-ádicos `ℤ_12 ≅ ℤ_2 × ℤ_3` vía el teorema chino del resto en el
+límite inverso, exactamente el mismo teorema, a un solo nivel finito, que usa
+`crates/dz-gates/src/backends/crt.rs` (`decompose`/`reconstruct` mod 4 × mod
+3). Verificado con el binario que el paralelo es real:
+
+```
+$ target/release/dz-cli.exe compare mul 25 34
+mvl y crt empatan en los cinco contadores (83.927) y en profundidad (441);
+crt paga 118.630 reconstrucciones, mvl 0.
+```
+
+Leído ahora en su forma estructural: `ℤ/12ℤ` como anillo producto tiene suma
+y producto gratis componente a componente, pero **no es cuerpo** (tiene
+divisores de cero, `4·3≡0 mod 12`) y por tanto no tiene orden total
+compatible sin reconstruir — el mismo «CRT no compensa» de `02-crt-vs-mvl.md`
+y de §1, ahora explicado por qué no puede compensar. Pero **ninguna ventaja
+aritmética real de 2,3 sobre 5** más allá de la terminación ya sabida:
+cuerpo residual, grupo de unidades y dimensión de Hausdorff (que da 1 para
+cualquier primo, sin excepción) tratan a cada primo por separado. Cierra el
+teorema de Ostrowski — ningún primo está privilegiado en la clasificación de
+completaciones de ℚ — el mismo tipo de resultado que ya cerró la puerta a
+«elegir» L₁ para ℂ en §3.1.
+
+**Veredicto del ingrediente 3**: ni positivo ni negativo en el sentido de `09`
+o `10` — la pregunta original presupone estructura (curvas, rotación
+continua) que este sistema numérico no tiene. Con los tres ingredientes: uno
+negativo directo, uno positivo con polaridad invertida, uno que disuelve la
+pregunta. Ninguno vindica la lectura de Kryon.
+
 ---
 
 ## 5. Lo que la investigación aprendió sobre su propio instrumento
@@ -863,8 +935,16 @@ Para que nadie lea aquí más de lo que hay:
   racionales baratos para perímetro/diámetro (§4.7–§4.8) y no se comprobó si
   el mismo truco funciona aquí.
 - La lista de «ingredientes» abierta por la reinterpretación de Kryon (§4.9,
-  §4.10) no se declaró cerrada por el usuario; puede continuar con un tercer
-  ingrediente si se retoma.
+  §4.10, §4.11) no se declaró cerrada por el usuario; puede continuar con un
+  cuarto ingrediente si se retoma.
+- `11` deja explícitamente abierta la forma cuadrática `x²+y²=1` sobre `ℚ_p`
+  (símbolo de Hilbert, Hasse–Minkowski) como vía no perseguida, y señala como
+  posible cuarto ingrediente si la serie continúa: la línea B (`06`, fórmulas
+  de adición imposibles en L₁ porque `D₄` es finito) y el ingrediente 3
+  (grupo de unidades p-ádico profinito, tampoco continuo) podrían ser
+  instancias de un mismo principio — «ningún grupo totalmente disconexo aloja
+  una familia continua no trivial» — sin investigar si es una obstrucción
+  común genuina o una coincidencia de vocabulario.
 
 ---
 
