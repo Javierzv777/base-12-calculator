@@ -10,6 +10,7 @@ son extensiones posteriores al cierre, abiertas por preguntas del usuario sobre
 hallazgos concretos; cada una está resumida en §4.5, §4.6, §4.7 y §4.8.
 
 Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-09-13 (`07` y `08`).
+Revisión crítica aplicada: 2026-09-13 (ver §8).
 
 ---
 
@@ -47,8 +48,8 @@ partida.
 Ese antagonismo admite una réplica obvia —cambiar la bola unidad por una cuya
 simetría sí case con base 12— y se ensayó a fondo (§4.7). El resultado no
 cambia el veredicto: el hexágono `D₆` consigue una constante racional y robusta
-donde L₁ no podía, pero ningún cuerpo de la familia tiene sus tres constantes
-racionales a la vez, y la familia de n-ágonos regulares queda **clasificada por
+donde L₁ no podía, esa es la única constante invariante racional y robusta de
+toda la familia, y la familia de n-ágonos regulares queda **clasificada por
 completo**, no muestreada.
 
 ### Veredicto por factor, que es como hay que leerlo
@@ -71,7 +72,7 @@ fuerte.**
 
 | | predicción | veredicto |
 |---|---|---|
-| **P1** | no hay «π taxicab» único | **confirmada, y extendida a una forma más fuerte** — la constante depende de la propiedad conservada (4 para perímetro/diámetro, 2 para área, `4√3` para superficie en 3D) y §4.7 añade que **ningún** rediseño de la simetría de la bola unidad hace racionales las tres a la vez |
+| **P1** | no hay «π taxicab» único | **confirmada, y extendida a una forma más fuerte** — la constante depende de la propiedad conservada (4 para perímetro/diámetro, 2 para área, `4√3` para superficie en 3D) y §4.7 añade que entre los n-ágonos regulares solo el hexágono da una razón perímetro/diámetro racional **y** robusta (la forma «ninguno hace racionales las tres a la vez» cayó en la revisión: área y volumen de Lebesgue no son invariantes de la norma) |
 | **P2** | L₁ y L∞ son las únicas `Lp` con razón entera | **confirmada** en lo esencial (A la matiza; ver su §4) |
 | **P3** | la trigonometría L₁ pierde las fórmulas de suma | **confirmada, y más fuerte de lo predicho** |
 | **P4** | Fourier bajo L₁ no da Plancherel ni se simplifica | **confirmada** |
@@ -84,20 +85,25 @@ fuerte.**
 
 De todo lo producido, esto es lo que sobreviviría a una revisión hostil.
 
-### 3.1 L₂ no es una convención: la multiplicación de ℂ la reconstruye (línea C)
+### 3.1 L₂ no es una convención: la multiplicación de ℂ la selecciona (línea C)
 
-El resultado más fuerte de la investigación, y va **contra** la hipótesis en su
-forma ambiciosa. La fórmula de Gelfand aplicada al módulo L₁ da
+Va **contra** la hipótesis en su forma ambiciosa. La fórmula de Gelfand aplicada
+al módulo L₁ da
 
 ```
 lim_{n→∞} |zⁿ|₁^{1/n} = |z|₂
 ```
 
 Es decir: si se itera la multiplicación compleja midiendo con L₁, **L₂ reaparece
-sola en el límite**. No se puede «elegir» L₁ para el análisis complejo y
-esperar que la geometría euclidiana se quede fuera; la estructura multiplicativa
-de ℂ la selecciona. Es casilla (I) en su forma más dura — no «L₂ es cómoda»,
-sino «L₂ está determinada».
+sola en el límite**. Pero conviene no sobrevenderlo: el límite es inmediato por
+equivalencia de normas (`|·|₂ ≤ |·|₁ ≤ √2|·|₂`) y sale igual partiendo de
+**cualquier** norma de ℂ, así que por sí solo no dice nada específico de L₁. El
+enunciado que sí tiene contenido es el que el límite ilustra: `|·|₂` es el
+**único valor absoluto multiplicativo** de ℂ que extiende el de ℝ (Ostrowski;
+Gelfand–Mazur). No se puede «elegir» L₁ para el análisis complejo y esperar que
+la geometría euclidiana se quede fuera; la estructura multiplicativa de ℂ la
+selecciona. Es casilla (I) en su forma más dura — no «L₂ es cómoda», sino «L₂
+está determinada» —, y el mérito es de ese teorema clásico, no del límite.
 
 La obstrucción de la que todo cuelga es más simple: `|zw|₁ ≠ |z|₁|w|₁`
 (contraejemplo `z = w = 1+i`). Sin multiplicatividad no hay forma polar; sin
@@ -140,8 +146,11 @@ El precio, medido y no minimizado: la **no unicidad L₁ tiene medida positiva**
 La bisectriz de `(0,0)`–`(2,2)` contiene dos cuadrantes enteros, así que el
 diagrama de Voronoi L₁ no es una partición sin una convención ajena a la
 geometría — y el caso degenerado es el *típico* sobre datos en rejilla, no una
-rareza. Ahí K **sube**: pérdida limpia. La elipse L₁ degenera hasta lo absurdo
-(con `a = 2c` el «lugar geométrico» es un cuadrado macizo).
+rareza. Ahí K **sube**: pérdida limpia. La elipse L₁ degenera hasta lo absurdo:
+con los focos en la **diagonal**, `F± = (±c, ±c)`, y `a = 2c`, el «lugar
+geométrico» es el cuadrado macizo `[−c, c]²` (`01-B` §2.4). Con los focos en un
+eje y los mismos `a` y `c` sale un hexágono corriente: la degeneración depende de
+la orientación, que es justo la pérdida de invariancia rotacional.
 
 ### 3.4 La racionalidad no desciende del cuerpo a su frontera (línea A)
 
@@ -181,7 +190,10 @@ $ ../target/release/dz-cli.exe eval "345*0;4" --mode fixed --gates
 115;8   → total=127360  depth=1153
 ```
 
-**3,52× más barato, mismo valor.** Base 10 no puede hacer esto para el 3. Y la
+**3,52× más barato, mismo valor.** La cifra está ligada a la escala de división
+por defecto (`DEFAULT_DIV_SCALE = 24`, que `--scale` no mueve en modo fijo): la
+división restauradora crece con los dígitos que produce y `× 0;4` no, así que el
+factor no es una constante del circuito. Base 10 no puede hacer esto para el 3. Y la
 divisibilidad por 2, 3, 4, 6 y 12 se decide en `O(1)` mirando el último dígito,
 frente a `O(cifras)` para el 3 en decimal. Eso es estructura de circuito, no
 ortografía.
@@ -199,20 +211,34 @@ Y **base 12 no eliminó ni un radical ni un irracional en ninguna de las ocho
 familias**. Todo su efecto vive en `N_periodicos`, más el ahorro de circuito de
 §4.1. P5 hay que reescribirla, no tacharla.
 
-### 4.3 El lead más prometedor murió midiendo
+### 4.3 El lead más prometedor no es accesible desde el instrumento
 
-La sospecha era que escalar por la base fuese gratis. **No lo es**, y el
-instrumento lo desmiente sin ambigüedad:
+La sospecha era que escalar por la base fuese gratis. **Desde una expresión del
+calculador no lo es**:
 
 ```
 345*10  →  97.252 puertas        345*E   →  96.037     (¡la base cuesta MÁS!)
 345/10  → 606.860                345/9   → 512.090
 ```
 
-El bucle recorre los dígitos del segundo operando, y `12` escrito `10` tiene
-dos dígitos mientras `E` tiene uno. La supuesta ventaja posicional se vuelve
-penalización. Un lead teóricamente atractivo, refutado por medición en una
-línea de comandos: es el mejor argumento para haber instrumentado esto.
+Pero hay que leerlo como lo que es: una propiedad del **multiplicador escolar**
+de `dz-int`, no de la base. El bucle recorre los dígitos del segundo operando
+sin saltar el cero, y `12` escrito `10` tiene dos dígitos mientras `E` tiene
+uno. Y la mayor parte de esas cifras ni siquiera es multiplicación: es el
+andamiaje del evaluador en modo fijo.
+
+```
+$ target/release/dz-cli.exe eval "345+0" --mode fixed --gates   → total=68360
+$ target/release/dz-cli.exe eval "345*1" --mode fixed --gates   → total=78590
+```
+
+Descontado `345*1`, la diferencia real entre `× 10` y `× ↋` es de ~18.700 contra
+~17.400 puertas. La ventaja posicional **sí** existe como estructura —`dz-sci`
+escala por `12^k` moviendo `scale`, con cero puertas—; lo que no existe es un
+camino que la exponga en la aritmética de expresiones. Un lead teóricamente
+correcto que el instrumento no deja ver, no un lead refutado. `01-D` §3.1 ya lo
+formulaba así («no realizable con este instrumento»); la primera versión de esta
+síntesis lo endureció a «refutado», y no lo es.
 
 ### 4.4 Goldbach: reformulación limpia, no descubrimiento
 
@@ -254,9 +280,25 @@ también tiene banda** —los acabados en `0`, razón **1,3332**— porque su ú
 dígito delata el 5, con factor `(5−1)/(5−2) = 4/3`. Cada base enseña su propio
 primo impar. Base 12 gana por dos razones medibles, no por magia: su factor es
 mayor (2 contra 4/3) y más frecuente (un tercio de los pares contra un quinto).
-Residuo declarado: dentro de los no múltiplos de 3, `{4,↊}` queda un 0,58%%
-por encima de `{2,8}` sin que la teoría prediga diferencia; era 1,09%% midiendo
-hasta 250.000, así que es efecto de rango finito.
+Residuo: dentro de los no múltiplos de 3, `{4,↊}` queda un 0,58% por encima de
+`{2,8}` midiendo hasta 10⁶, y un 1,09% hasta 250.000. La primera versión de esta
+síntesis lo declaró «sin que la teoría prediga diferencia»; **la teoría sí lo
+predice, y con signo**. Es el **sesgo de Chebyshev**. Si `n ≡ 1 (mod 3)`
+(acabados `4`, `↊`), los dos primos de la descomposición son `≡ 2 (mod 3)`; si
+`n ≡ 2 (mod 3)` (acabados `2`, `8`), los dos son `≡ 1 (mod 3)`. Y los primos
+`≡ 2 (mod 3)` son sistemáticamente algo más abundantes:
+
+| límite | `π(x; 3, 1)` | `π(x; 3, 2)` | parejas con suma `≡ 1` sobre suma `≡ 2` |
+|--:|--:|--:|--:|
+| 250.000 | 10.996 | 11.046 | **+1,100%** |
+| 1.000.000 | 39.231 | 39.265 | **+0,581%** |
+
+(Conteo exacto de parejas ordenadas de primos `> 3` con `p + q ≤ x`, script
+aparte, fuera del repositorio como la criba.) Reproduce las dos cifras del
+residuo, y la caída a la mitad al cuadruplicar el rango es la esperable de un
+sesgo que decae como `1/√x`. No es efecto de rango finito sin explicación: es un
+fenómeno conocido de la distribución de primos en progresiones, y la base 12 lo
+deja leer en el último dígito igual que deja leer el factor 2.
 
 Esto último es lo mejor de la línea y merece nombrarse con precisión: es una
 **mejora de visualización de un hecho conocido** (el factor de Hardy–Littlewood
@@ -419,20 +461,33 @@ abiertas, y el saldo es:
 | ¿es robusta la rotación para `n = 8, 10, 12`? | `n=8` no; `n=12` **no** (toca 3 solo en φ=15°, artefacto de alineación, igual que el 4 de L₁); `n=10` **sí**, pero su constante `(5√5−5)/2` es irracional |
 
 De donde sale el enunciado que resume la línea: **`racional ∧ robusto ⟺ n = 6`**.
-Y el área del propio hexágono es irracional, y el cuerpo 3D que extiende su
-simetría (el prisma hexagonal) falla ya en el **volumen**, antes siquiera de
-llegar a la superficie donde el octaedro fallaba.
+
+`07` concluía además que el área del hexágono es irracional (`3√3/2`) y que el
+prisma hexagonal falla ya en el **volumen** (`3√3`). **Esa parte no se sostiene
+como afirmación sobre la norma**, y la corrección es de fondo. En un plano normado
+el área de Lebesgue de la bola unidad no es un invariante: cambia con cualquier
+aplicación lineal, y una aplicación lineal da una norma isométrica. El hexágono
+de vértices `(±1, 0), (0, ±1), ±(1, −1)` es imagen afín del regular, define la
+misma geometría (su `π_B` sigue siendo 3, y por el Teorema A de `08` es racional
+por tener vértices racionales), y su área es **3**; el prisma sobre él tiene
+volumen **6**. El `√3` venía de dibujar el hexágono con la métrica euclidiana,
+que es estructura ajena a la norma que se estudia. Lo mismo vale para las áreas
+de la tabla de `07` §0: son áreas del polígono **euclidiano-regular**, no
+invariantes de la norma. Lo que sí sobrevive intacto es todo lo que es invariante
+lineal: la razón perímetro/diámetro, su clasificación por Niven y la robustez.
 
 **El dodecágono merece un párrafo aparte porque es la trampa perfecta.** Es el
 candidato con más «12» en el nombre (`D₁₂`, orden 24) y resulta ser el **peor**
-de los cuatro en perímetro/diámetro (`24−12√3`, irracional) y el **mejor** en
-área (exactamente **3**, entero). Pero esa área racional no tiene relación
-alguna con base 12: es el **teorema de Niven** (1956) — `sin θ` racional para `θ`
-múltiplo racional de `π` solo en `{0, ±1/2, ±1}` — que caracteriza `n=4` y `n=12`
-como los únicos n-ágonos regulares de área racional, en cualquier geometría y en
+de los cuatro en perímetro/diámetro (`24−12√3`, irracional) y, dibujado
+euclidianamente regular con circunradio 1, el **mejor** en área (exactamente
+**3**, entero). Pero esa área racional no tiene relación alguna con base 12: es
+el **teorema de Niven** (1956) — `sin θ` racional para `θ` múltiplo racional de
+`π` solo en `{0, ±1/2, ±1}` — que caracteriza `n=4` y `n=12` como los únicos
+n-ágonos **euclidianamente regulares** de circunradio 1 con área racional, en
 cualquier base numérica. El «12» del resultado es que `360°/12 = 30°`, no que
 `12 = 2²·3`. Casilla **(III) aparente, (I) real**: no es ni siquiera un efecto de
-representación, es aritmética de ángulos.
+representación, es aritmética de ángulos euclidianos — y, por la corrección de
+arriba, tampoco es un invariante de la norma del dodecágono.
 
 **Por qué este resultado vale más que los seis anteriores.** No por su signo —es
 negativo como ellos— sino por su alcance. Los documentos `03`, `04` y `05`
@@ -447,14 +502,16 @@ racional es una condición de grado 1 que Niven caracteriza por completo.
 **Racionalidad barata contra racionalidad rígida**: la de `Lp` no significaba
 nada, la del hexágono sí, y aun así no basta.
 
-Extensión de P1, en su forma fuerte: no es solo que no exista un «π taxicab»
-único; es que **ningún rediseño de la simetría de la bola unidad produce un
-cuerpo cuyas constantes de perímetro/diámetro, área y superficie 3D sean
-racionales a la vez**. Cada candidato gana en una y pierde en otra, y las
-obstrucciones son al menos tres y son independientes entre sí (Niven para las
-áreas, Gołąb para la extremal de perímetro/diámetro, la herencia directa de `√2`
-o `√3` del propio polígono) — el mismo patrón de «varias causas separadas, no
-una» que §4.6 encontró para los fracasos de la superficie del octaedro.
+Extensión de P1, en la forma que sí se sostiene: no es solo que no exista un «π
+taxicab» único; es que **entre los n-ágonos regulares la única constante
+invariante que sale racional y robusta es el 3 del hexágono**. La primera versión
+de esta síntesis afirmaba algo más fuerte —que ningún cuerpo tiene
+perímetro/diámetro, área y superficie 3D racionales a la vez— y **esa forma cae**:
+el hexágono afín de vértices enteros tiene razón 3, área 3 y prisma de volumen 6.
+Área y volumen de Lebesgue no son invariantes de una norma, así que no podían
+sostener la afirmación. Queda abierta, y bien planteada, la versión con
+superficies medidas intrínsecamente (Busemann/Holmes–Thompson, que sí son
+invariantes y en `07` §2.6 salen `5π` y `42/π`).
 
 Una nota de higiene, porque el estándar de esta serie es que un error publicado
 quede visible: la reverificación de la segunda pasada (`07` §5.7) encontró tres
@@ -510,23 +567,31 @@ por dos vías independientes. El precio, que es el hallazgo:
 | lo que se pierde | detalle |
 |---|---|
 | unicidad | una variedad de dimensión 11 de 16-gonos por cada valor objetivo |
-| isotropía | ningún n-ágono regular tiene vértices racionales salvo `n = 3, 4, 6` |
+| isotropía | ningún n-ágono **afínmente** regular tiene vértices racionales salvo `n = 3, 4, 6`; euclidianamente regular, solo el cuadrado |
 | canonicidad | hay un continuo de sucesiones válidas, ninguna privilegiada |
 | **honestidad del método** | los polígonos de `22/7` **reciben el número objetivo como entrada de una ecuación lineal** — el movimiento que §1 del plan prohíbe, en su forma más literal |
 
-Y como método de aproximación es catastrófico: a error `≈1,2·10⁻³` el racional
-del 96-gono necesita **278 cifras de denominador**, frente a **1** de `22/7`;
-en el paso siguiente la penalización es ×294. La razón es estructural: el error
-decae como `π³/(3n²)` —cuadrático en `n`— mientras el denominador crece
-**exponencialmente** (es el producto de las hipotenusas pitagóricas usadas).
-**No es un método de aproximación: es una reformulación geométrica de la
+Y como método de aproximación es malo: a error `≈1,1·10⁻³` el racional del
+96-gono construido en `08` necesita **278 cifras de denominador**, frente a **1**
+de `22/7`; en el paso siguiente la penalización es ×294. El error decae como
+`π³/(3n²)` —cuadrático en `n`—, y en esa construcción el denominador crece muy
+deprisa porque cada vértice aporta **su propia** hipotenusa pitagórica. Eso es
+una elección de la construcción, **no** una necesidad: tomando todos los vértices
+con un denominador común `c = 5·13·17·…`, cada primo `≡ 1 (mod 4)` añadido duplica
+los puntos racionales disponibles sobre la circunferencia, y el denominador
+crecería mucho más despacio. La primera versión de esta síntesis llamaba
+«estructural» al crecimiento exponencial; `08` §6 ya advertía que era lectura de
+tabla. La penalización frente a los convergentes probablemente sobrevive (son
+óptimos), pero su tamaño no está medido para la mejor construcción. **Como
+método de aproximación no compite: es una reformulación geométrica de la
 densidad de ℚ.**
 
 **Y el sabor dozenal sale negativo, no neutro** (Prop. 4, hallazgo nuevo): los
 puntos racionales del círculo tienen denominadores de la forma `p²+q²`, y
 **ningún número de esa forma es divisible por 3** (si `3 | p²+q²` con
-`gcd(p,q)=1`, los cuadrados mód 3 fuerzan `p ≡ q ≡ 0`, contradicción). Sus
-factores primos son 2 y los `≡ 1 (mod 4)`, lista que **empieza por 5**. De ahí
+`gcd(p,q)=1`, los cuadrados mód 3 fuerzan `p ≡ q ≡ 0`, contradicción). Como
+hipotenusas de ternas primitivas son además **impares**, así que sus factores
+primos son solo los `≡ 1 (mod 4)`, lista que **empieza por 5**. De ahí
 que `3/5` y `4/5` terminen en base 10 y **no** en base 12: en la aritmética
 natural de esta construcción **base 10 es estrictamente mejor que base 12**.
 No es casualidad — **esta construcción *son* ternas pitagóricas**, el dominio
@@ -630,3 +695,31 @@ Para que nadie lea aquí más de lo que hay:
   producidos por agentes que trabajaron contra el mismo protocolo y verificando
   con el mismo binario; las afirmaciones centrales de la línea D se
   re-verificaron a mano en la síntesis, las demás no.
+
+---
+
+## 8. Revisión crítica (2026-09-13)
+
+Una revisión posterior rehízo a mano las derivaciones centrales y volvió a medir
+las cifras clave con el binario. **Se sostienen**: las superficies de Hausdorff,
+Busemann y Holmes–Thompson del octaedro (`4√3`, `16π/3`, `48/π`) y del
+dodecaedro rómbico (`6√2`, `4π`, `36/π`); la robustez rotacional del 3 del
+hexágono; la dicotomía mod 4 con Niven; el perímetro `8a−4c`; la bisectriz L₁
+con dos cuadrantes; la imposibilidad de las fórmulas de adición; el Teorema A; y
+las cifras `345*10`, `345*E`, `345/3`, `345*0;4`, que reproducen exactas.
+
+Lo que se corrigió, dejado visible por el mismo estándar de `07` §5.7:
+
+| § | decía | corregido a | ¿mueve un veredicto? |
+|---|---|---|---|
+| 4.4 | residuo `{4,↊}` vs `{2,8}` «sin que la teoría prediga diferencia», «efecto de rango finito» | sesgo de Chebyshev, con signo y magnitud reproducidos (+1,100% y +0,581%) | no; quita un misterio |
+| 4.3 | escalar por la base, «refutado por medición» | límite del multiplicador escolar y del andamiaje del evaluador; la ventaja posicional existe pero no es accesible desde expresiones | sí, de refutación a no concluyente |
+| 4.7 | área del hexágono y volumen del prisma irracionales; «ningún cuerpo tiene las tres constantes racionales» | área y volumen de Lebesgue no son invariantes de una norma; el hexágono afín entero tiene área 3 y prisma de volumen 6 | sí, cae la forma fuerte de la extensión de P1 |
+| 4.8 | «ningún n-ágono regular tiene vértices racionales salvo 3, 4, 6» | afínmente regular: 3, 4, 6; euclidianamente regular: solo 4 | no |
+| 4.8 | crecimiento exponencial del denominador «estructural» | artefacto de una hipotenusa por vértice; un denominador común lo frena | no; la penalización queda sin medir en su mejor caso |
+| 4.8 | factores primos de las hipotenusas «2 y los ≡ 1 (mod 4)» | hipotenusas primitivas son impares: solo los `≡ 1 (mod 4)` | no |
+| 3.1 | el límite de Gelfand como «resultado más fuerte» | el límite es trivial por equivalencia de normas; el contenido es Ostrowski / Gelfand–Mazur | no; cambia el mérito |
+| 3.3 | `a = 2c` da un cuadrado macizo | solo con focos diagonales | no |
+| 4.1 | 3,52× | ligado a `DEFAULT_DIV_SCALE = 24` | no |
+
+El veredicto de §1 sobre H₁ y el antagonismo `D₄` contra `2²·3` no cambian.

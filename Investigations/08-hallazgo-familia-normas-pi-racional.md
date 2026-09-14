@@ -688,10 +688,14 @@ Las tres preguntas que el encargo pide responder con precisión:
   §3.7 (invariancia de `π_B` bajo rotación arbitraria del cuerpo contra su
   propia norma) es una propiedad de la rama `n ≡ 2 (mod 4)` **regular**. Un
   polígono de vértices racionales no es regular salvo el cuadrado y las
-  imágenes afines del hexágono regular — de hecho **ningún `n`-ágono regular
-  con `n ∉ {3,4,6}` admite coordenadas racionales**, porque sus vértices
-  generan `Q(ζ_n)` de grado `φ(n) > 2`. La construcción compra racionalidad
-  vendiendo simetría.
+  imágenes afines del hexágono regular — de hecho **ninguna imagen afín de un
+  `n`-ágono regular con `n ∉ {3,4,6}` admite coordenadas racionales**, porque
+  sus vértices generan `Q(ζ_n)⁺` de grado `φ(n)/2 > 1`. *(Corregido en la
+  revisión del 2026-09-13: la versión anterior decía «ningún `n`-ágono
+  regular», lo que sugería que el triángulo equilátero y el hexágono regular
+  euclidianos admiten coordenadas racionales; no las admiten — el `√3` lo
+  impide —, y euclidianamente regular sólo el cuadrado las tiene.)* La
+  construcción compra racionalidad vendiendo simetría.
 - **¿Es canónica la sucesión? NO: hay un continuo de sucesiones.** Cambiar el
   denominador máximo `Q(n)`, el reparto angular, o la elección de las
   aproximaciones `s_k` da otra sucesión igual de válida. Ni siquiera el
@@ -720,13 +724,20 @@ Comparación directa **a igual error**:
 | error | racional poligonal (§3.2) | mejor racional (convergente) | penalización |
 |---|---|---|---|
 | `≈ 1,4·10⁻¹` | `n=6`, den. de **5 cifras** (2 con `Q=10`) | `3/1`, den. de **1 cifra** | ×5 |
-| `≈ 1,2·10⁻³` | `n=96`, den. de **278 cifras** | `22/7`, den. de **1 cifra** | **×278** |
+| `≈ 1,1·10⁻³` | `n=96`, den. de **278 cifras** | `22/7`, den. de **1 cifra** | **×278** |
 | `≈ 1,6·10⁻⁴` | `n=256`, den. de **881 cifras** | `333/106`, den. de **3 cifras** | **×294** |
 
-La razón estructural: el error del polígono decae como `π³/(3n²)` (el término
+El mecanismo: el error del polígono decae como `π³/(3n²)` (el término
 de Taylor de `n·tan(π/n)`), es decir **cuadrático en `n`**, mientras que el
-denominador del racional crece **exponencialmente en `n`** (es un producto de
-las `n` hipotenusas pitagóricas usadas). Un convergente `p/q` alcanza error
+denominador del racional crece muy deprisa en `n` **en esta construcción**,
+porque cada vértice aporta su propia hipotenusa pitagórica. *(Revisión del
+2026-09-13: la versión anterior lo llamaba «razón estructural». No lo es.
+Tomando todos los vértices con un denominador común `c = 5·13·17·…`, cada primo
+`≡ 1 (mod 4)` añadido duplica los puntos racionales de denominador `c` sobre la
+circunferencia, y el denominador necesario para `n` vértices crecería mucho más
+despacio. La penalización frente a los convergentes probablemente sobrevive,
+porque éstos son óptimos, pero su tamaño para la mejor construcción no está
+medido.)* Un convergente `p/q` alcanza error
 `≈ 1/q²`, y la construcción poligonal alcanza el mismo error con `q` de
 cientos de cifras en vez de una o tres.
 
@@ -859,7 +870,10 @@ negativo.
 módulo 3 son `{0,1}`, la única solución es `p ≡ q ≡ 0 (mod 3)`, que contradice
 `gcd(p,q)=1`. ∎
 
-Los primos que dividen a `p²+q²` primitivo son `2` y los `≡ 1 (mod 4)`:
+Los primos que dividen a `p²+q²` primitivo son `2` y los `≡ 1 (mod 4)`; y como
+aquí `p²+q²` es la hipotenusa de una terna pitagórica primitiva (`p`, `q` de
+paridad opuesta), es **impar**, así que el `2` tampoco aparece *(precisión
+añadida en la revisión del 2026-09-13)*. Quedan
 `5, 13, 17, 29, 37, 41, 53, 61, 73, 89, 97, 101, …` — y la lista **empieza por
 5**, que es precisamente el primo que `99-sintesis.md` §1 identifica como el
 que base 12 no regala y base 10 sí.

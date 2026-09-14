@@ -53,6 +53,20 @@ aquí de forma honesta, logra que las tres constantes ganen a la vez.**
 | decágono (n=10) | `D₁₀`, orden 20 | `(5√5−5)/2`, irracional (**√5**) | **sí** | irracional | — |
 | dodecágono (n=12) | `D₁₂`, orden 24 | `24−12√3`, **irracional** | **no** (llega a 3 solo a 15°) | **3**, racional (Niven) | — |
 
+> **Corrección (revisión del 2026-09-13).** La columna «área (Lebesgue)», el
+> volumen `3√3` del prisma y la frase en negrita «no hay ningún cuerpo… cuyas
+> constantes… sean simultáneamente racionales» **no son afirmaciones sobre la
+> norma**. En un plano normado el área de Lebesgue de la bola unidad cambia con
+> cualquier aplicación lineal, y una aplicación lineal da una norma isométrica.
+> El hexágono de vértices `(±1, 0), (0, ±1), ±(1, −1)` es imagen afín del
+> regular, tiene la misma `π_B = 3` y área **3**; su prisma `H × [−1, 1]` tiene
+> volumen **6**. Las áreas de la tabla son las del polígono dibujado
+> **euclidianamente** regular con circunradio 1, y la del dodecágono (3, por
+> Niven) tampoco es invariante. Lo invariante —perímetro/diámetro, robustez,
+> clasificación de §1.8— no cambia. Las superficies de Busemann y
+> Holmes–Thompson (`5π`, `42/π`) sí son intrínsecas y siguen en pie. Detalle en
+> `99-sintesis.md` §4.7 y §8.
+
 Casillas: perímetro/diámetro del hexágono y del dodecágono son **(II)**
 (la propiedad sobrevive al cambio de norma, la constante cambia); la
 racionalidad del área del dodecágono es **(II)** también, pero por un
@@ -1268,6 +1282,14 @@ definiciones de longitud/área coinciden (`03` §1, reducción al caso `k=1`) �
 así que no hay una segunda definición que probar en 2D, a diferencia de la
 superficie 3D. El área del hexágono es irracional bajo la única definición
 que existe en el plano, sin escapatoria.
+
+*Corrección (revisión del 2026-09-13):* sí hay escapatoria, y no es una segunda
+definición sino una segunda **coordenada**. Busemann y Holmes–Thompson coinciden
+en el plano con la longitud, no con el área de Lebesgue de la bola, que no es un
+invariante de la norma. El hexágono afín `(±1, 0), (0, ±1), ±(1, −1)` define la
+misma geometría y tiene área 3. Lo que se probó irracional es el área del
+hexágono **euclidianamente** regular, que es estructura ajena a la norma. §5.2
+cae por la misma razón: el prisma afín tiene volumen 6.
 
 ### 5.2 El prisma hexagonal falla antes de llegar a la superficie
 

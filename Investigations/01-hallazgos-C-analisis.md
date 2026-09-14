@@ -221,6 +221,13 @@ el producto, *la respuesta que sale es L₂*. Cualquier norma en ℂ devuelve `|
 por este límite. Casilla **(I)** en su forma más fuerte: L₂ no es sustituible
 porque es **reconstruible**.
 
+*Matiz (revisión del 2026-09-13).* Precisamente porque cualquier norma devuelve
+`|·|₂`, el límite no dice nada específico de L₁: es inmediato por equivalencia
+de normas en dimensión finita, como muestra la acotación de arriba. El contenido
+de fondo es clásico y más fuerte que el límite: `|·|₂` es el **único valor
+absoluto multiplicativo** de ℂ que extiende el de ℝ (Ostrowski; Gelfand–Mazur).
+El límite lo ilustra; el mérito de «L₂ está determinada» es de ese teorema.
+
 Verificación explícita y medida con `z = 1 + i`. Potencias: `z² = 2i`,
 `z³ = −2+2i`, `z⁴ = −4`, `z⁵ = −4−4i`, `z⁶ = −8i`, `z⁷ = 8−8i`, `z⁸ = 16`.
 Sus módulos L₁ son `2, 2, 4, 4, 8, 8, 16, 16`, o sea
