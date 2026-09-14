@@ -5,11 +5,13 @@ hipótesis de `planteamientos.md`. Cuatro líneas (A constantes, B lugares,
 C análisis, D dozenal) corrieron en paralelo contra el mismo protocolo, con el
 calculador de puertas de este repositorio como instrumento. Los informes
 completos están en `01-hallazgos-{A,B,C,D}-*.md`; las cifras compartidas y las
-trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `08`
+trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `10`
 son extensiones posteriores al cierre, abiertas por preguntas del usuario sobre
-hallazgos concretos; cada una está resumida en §4.5, §4.6, §4.7 y §4.8.
+hallazgos concretos; cada una está resumida en §4.5, §4.6, §4.7, §4.8, §4.9 y §4.10.
 
-Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-09-13 (`07` y `08`).
+Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-09-14 (`09` y `10`,
+la lista de "ingredientes" abierta por la reinterpretación de la afirmación de
+Kryon sobre π — ver §4.9 y §4.10 para el contexto).
 Revisión crítica aplicada: 2026-09-13 (ver §8).
 
 ---
@@ -614,6 +616,159 @@ Gołąb, no puntos de su interior.**
 
 ---
 
+### 4.9 ¿Evita π cambiar la topología en vez de la métrica? No — Gauss-Bonnet solo decide el múltiplo
+
+El origen de esta pregunta y la siguiente (§4.10) es distinto a los anteriores:
+el usuario trajo una afirmación de Kryon (canalización, no fuente matemática)
+de que π «está mal» por calcularse en base 10, y la reinterpretó de forma
+caritativa — no que π esté mal, sino que exista alguna geometría que
+genuinamente no lo necesite, más allá de solo cambiar la norma (agotado en
+`03`–`05`, `07`, `08`). Se abrió una lista ordenada de «ingredientes»
+candidatos. El primero, en `09-hallazgo-topologia-euler-ingrediente1.md`:
+en vez de tocar la métrica, tocar la **característica de Euler** χ del
+objeto.
+
+Motivación exacta: `05` §1.3 ya había mostrado que el defecto angular total de
+cualquier poliedro convexo es `4π` porque χ=2, no por la norma. La pregunta:
+si χ≠2, ¿desaparece π, o solo cambia el múltiplo?
+
+**Construcción verificada, no citada.** Un anillo de 8 cubos unitarios (rejilla
+3×3 con el cubo central retirado) — un toro poliédrico. Contado a mano:
+V=32, E=64, F=32.
+
+```
+$ target/release/dz-cli.exe eval "32-64+32" --mode rational
+0
+```
+
+χ=0, confirmado por conteo, no asumido. Tres clases de vértice (esquina
+exterior, punto medio de arista, esquina interior del agujero) dan defectos
+angulares `+π/2`, `0`, `−π/2` respectivamente (8, 16 y 8 vértices), verificados
+uno a uno con el binario. La suma total:
+
+```
+$ target/release/dz-cli.exe eval "8*(2*pi-3*(pi/2)) + 16*(2*pi-4*(pi/2)) + 8*(2*pi-5*(pi/2))" --mode fixed --scale 8
+~0
+```
+
+**π no desaparece: aparece en cada uno de los 32 vértices con signo.** El total
+da 0 (`2πχ` con χ=0) por cancelación genuina de 8 términos `+π/2` contra 8
+`−π/2` — un cero real, no una tautología «0=0» — pero sigue siendo la misma
+fórmula de `05` §1.3, evaluada en otro entero. No es hallazgo nuevo.
+
+Se exploró también si el área de una superficie hiperbólica compacta,
+`4π(g−1)` (Gauss-Bonnet suave con `K=−1` fijo), fuera «menos π» que `4πr²`
+en la esfera. No lo es: ambas son `(constante topológica entera) × π`; elegir
+`K=−1` en vez de un radio libre es la misma clase de elección arbitraria.
+Reformulación, no hallazgo.
+
+**El único resultado positivo, y no es nuevo en su mecanismo**: la curvatura
+combinatoria de Higuchi (`05` §1.4, sin ángulos, solo grados de vértice y
+cara) aplicada al mismo toro da valores exactos `1/4`, `0`, `−1/4` —
+racionales puros, sin `~`, verificados con `--mode rational`:
+
+```
+$ target/release/dz-cli.exe eval "8*(1-3/2+3*(1/4)) + 16*(1-4/2+4*(1/4)) + 8*(1-5/2+5*(1/4))" --mode rational
+0
+```
+
+Evita π con certeza (3,18× menos puertas, 8,97× menos profundidad que la
+versión angular, medido) pero paga el mismo precio que en `05`: ciego a la
+forma real, solo ve el grafo de incidencias. Es la confirmación de que el
+ingrediente que ya funcionaba (contar en vez de medir ángulos) sigue
+funcionando igual cuando χ cambia — no un ingrediente nuevo.
+
+**Base 12**: sin conexión genuina. El único patrón dozenal (`1/4` termina) es
+el mismo `12=2²·3` de siempre, disparado por haber elegido cubos (potencias de
+2), no por el género del objeto. Casilla (I) explícita.
+
+**Veredicto del ingrediente 1: negativo.** Cambiar χ no da geometría sin π —
+Gauss-Bonnet ata π a la noción de «vuelta completa», y χ solo decide el
+múltiplo entero que la acompaña, incluido el múltiplo 0.
+
+### 4.10 ¿Evita π una medida de tamaño no aditiva? Sí — y al someterla a L₁ la polaridad se invierte
+
+Segundo ingrediente de la lista (`10-hallazgo-medida-no-aditiva-ingrediente2.md`):
+en vez de tocar la métrica o χ, tocar el **axioma de aditividad** de la propia
+medida. Todo lo medido en la serie hasta `09` (Hausdorff, Busemann,
+Holmes–Thompson, Ehrhart, defecto angular, `κ_comb`) es aditivo sobre uniones
+disjuntas por construcción.
+
+**Sí existe, y es matemática clásica, no ad hoc.** La **capacidad
+logarítmica** (= diámetro transfinito, teorema de Fekete–Szegő; = radio
+conforme para dominios simplemente conexos) del disco de radio `R` es
+`cap = R`, **exactamente, sin π**, derivado a mano vía la función de Green del
+dominio exterior y confirmado contra dos fuentes independientes (Saff–Totik,
+MathWorld). Se extiende a 3D: la capacidad de Newton de la bola de radio `r`
+también es `r` exacto. El segmento de longitud `L` da `cap = L/4`; la elipse
+de semiejes `a, b` da `cap = (a+b)/2` — los tres, racionales/algebraicos
+limpios en los parámetros del cuerpo.
+
+**Es genuinamente no aditiva, y más de lo esperado.** Una monografía clásica
+del área (Landkof) afirma subaditividad simple (`cap(A∪B) ≤ cap(A)+cap(B)`);
+la búsqueda bibliográfica encontró que **es falsa en general** — Pyrih (1992)
+construye un contraejemplo explícito. Lo que sí se sostiene es la
+subaditividad fuerte del **logaritmo** de la capacidad, la propiedad
+axiomática correcta de una capacidad de Choquet (1954). Se documenta el error
+de una fuente autorizada, corregido en vez de repetido.
+
+**La prueba contra L₁, siguiendo el estándar del resto de la serie, invierte
+la polaridad habitual.** La bola unidad de L₁ es el cuadrado de vértices
+`(±1,0), (0,±1)`. Su capacidad logarítmica, citada de la literatura (Pólya–
+Szegő; no rederivada — Schwarz–Christoffel de un cuadrado exige funciones
+hipergeométricas fuera del alcance de una derivación autocontenida, y
+`dz-cli` no tiene función Gamma para contrastarla — es la cifra más débil del
+documento):
+
+```
+cap(cuadrado L₁) = √2 · Γ(1/4)² / (4π^{3/2}) ≈ 0,8346...
+```
+
+Trascendente, con π combinado con `Γ(1/4)` (la constante lemniscática), que es
+**algebraicamente independiente** de π (Chudnovsky/Nesterenko). En todo el
+resto de la investigación L₁ daba lo racional y L₂ necesitaba π (`99-sintesis.md`
+§3.3: perímetro de elipse, mediana, rutas mínimas). **Aquí es al revés: el
+disco L₂ es limpio, el cuadrado L₁ es sucio.**
+
+La razón no es casualidad. La capacidad logarítmica es el radio conforme del
+exterior del cuerpo, vía la aplicación de Riemann. Para el disco, la elipse y
+el segmento esa aplicación es elemental (identidad, Joukowski). Para el
+cuadrado, tiene esquinas, y las esquinas fuerzan Schwarz–Christoffel — la
+misma integral que rectifica la lemniscata de Bernoulli, de donde sale
+`Γ(1/4)`. Es exactamente lo opuesto de por qué L₁ ganaba en longitud de arco:
+ahí una esquina no añadía coste (el perímetro es indiferente a la suavidad);
+aquí la esquina es precisamente la singularidad que rompe la elementalidad de
+la aplicación conforme. **Capacidad y perímetro son funcionales
+geométricamente opuestos en su sensibilidad a las esquinas** — segundo ejemplo,
+con signo invertido, del hallazgo transversal de §4.5: complejidad de forma y
+complejidad de medida son ejes independientes.
+
+Casilla **(I), con una precisión**: la capacidad logarítmica no es trasladable
+a L₁ en el sentido en que área o curvatura sí lo eran en `05`/`09` — usa el
+núcleo `log|z−w|` (solución fundamental del laplaciano en 2D) y aplicaciones
+holomorfas; no existe una «capacidad L₁» con núcleo `‖z−w‖₁` que generalice la
+teoría (no hay teorema de aplicación de Riemann para normas no euclidianas).
+La pregunta «capacidad de la bola L₁» ya presupone L₂ para poder plantearse —
+mismo punto que §3.1 (Ostrowski/Gelfand–Mazur): la estructura holomorfa **es**
+L₂, no una elección entre otras.
+
+**Base 12**: sin conexión, ni siquiera la barata de `12=2²·3` — los
+denominadores que aparecen (2, 4) son potencias de 2, compartidas por ambas
+bases (verificado: `1/4`, `3/4`, `1/2` terminan tanto en dozenal como en
+decimal; el control de contraste, `1/3`, que sí discrimina, no aparece en
+ninguna fórmula de capacidad).
+
+**Veredicto del ingrediente 2: la pregunta central se responde que sí** —
+existe una medida de tamaño rigurosa y no aditiva que evita π en el disco y
+la esfera, dando exactamente el radio. Pero no vindica la lectura de Kryon:
+`cap` no es «el tamaño del círculo» en el sentido intuitivo (no es área, no
+es perímetro; coincide con el radio por un teorema específico de teoría del
+potencial, no porque «corrija» nada), y al someterla a la prueba de L₁ que
+exige el protocolo de esta serie, el resultado se revierte — es el caso
+euclidiano el limpio.
+
+---
+
 ## 5. Lo que la investigación aprendió sobre su propio instrumento
 
 Tres hallazgos sobre el calculador, no sobre la geometría. Van aquí porque
@@ -695,6 +850,21 @@ Para que nadie lea aquí más de lo que hay:
   producidos por agentes que trabajaron contra el mismo protocolo y verificando
   con el mismo binario; las afirmaciones centrales de la línea D se
   re-verificaron a mano en la síntesis, las demás no.
+- `09` cubre solo χ=0 (un toro simétrico construido a mano); no se construyó un
+  segundo toro asimétrico para confirmar que la cancelación de defectos no es
+  artefacto de la simetría cúbica, ni se exploró χ<0 discreto (más de un
+  agujero, o no orientable).
+- `10` cita, sin rederivar, la capacidad logarítmica del cuadrado
+  (`√2·Γ(1/4)²/(4π^{3/2})`) de una sola fuente — Schwarz–Christoffel de un
+  cuadrado excede lo razonable para una derivación autocontenida, y `dz-cli`
+  no tiene función Gamma para un control numérico independiente. Es la cifra
+  menos verificada de toda la serie. Tampoco se exploró si alguna bola `Lp`,
+  `p∈(1,∞)`, tiene capacidad logarítmica racional — la familia `Lp` regaló
+  racionales baratos para perímetro/diámetro (§4.7–§4.8) y no se comprobó si
+  el mismo truco funciona aquí.
+- La lista de «ingredientes» abierta por la reinterpretación de Kryon (§4.9,
+  §4.10) no se declaró cerrada por el usuario; puede continuar con un tercer
+  ingrediente si se retoma.
 
 ---
 
