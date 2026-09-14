@@ -169,6 +169,7 @@ detectar el empate exacto sin dividir, y desempata con `is_even`. No lo
 |---|---|
 | `sqrt` (Newton), `exp`, `ln`, `log12`, `log_base` | `src/elementary.rs` |
 | `sin`, `cos`, `tan`, `asin`, `acos`, `atan` | `src/trig.rs` |
+| `gamma` (recurrencia entera + serie de Stirling en los Bernoulli), **CLI/REPL-only** | `src/gamma.rs` |
 | `pi` (Machin), `two_pi`, `half_pi`, `ln12`, `euler` — memoizadas | `src/constants.rs` |
 | `floor`/`ceil`/`round`/`trunc`/`sign`/`abs`, en fijo **y** en racional | `src/exact.rs` |
 | Literales (`0;6` = mitad), truncado a escala, contadores | `src/util.rs` |
@@ -185,6 +186,16 @@ Detalles que no hay que "simplificar":
   y se memoizan — mismo patrón y misma justificación que `lo_hi_table`. Por eso
   `dz-cli eval "pi" --gates` reporta 0 puertas.
 - Diseño completo y números medidos: `docs/05-funciones-cientificas.md`.
+- `gamma` está registrada en `dz-eval` como cualquier otra función, pero
+  `FnInfo::cli_only` (`dz-eval/src/functions.rs`) la marca oculta para
+  interfaces con teclado fijo. `SimpleFn::cli_only`
+  (`dz-eval/src/builtins.rs`) responde por una lista de nombres
+  (`CLI_ONLY_FUNCTIONS`), no por un campo en cada entrada del catálogo.
+  `dz_api::functions()` sigue sin filtrar (lo usan `dz-cli --functions` y
+  `:funcs`); el único sitio que lee el flag es
+  `app/src-tauri::commands::list_functions`, que la descarta antes de
+  mandarla al teclado de la GUI. `gamma(x)` tecleada a mano en la GUI
+  evalúa igual — solo falta la tecla, el registro es uno solo.
 
 ### `crates/dz-parse` — Capa 3
 

@@ -496,6 +496,22 @@ Callable functions and constants:
 
 Any listed name is also a subcommand: `dz-cli sqrt 2 --mode fixed`.
 
+`gamma` is in that catalog too (`--functions` lists it under `[special]`),
+but it is **CLI/REPL only** — the GUI's scientific keypad deliberately
+filters it out (`FnInfo::cli_only`, `app/src-tauri::commands::list_functions`).
+It is the generalized factorial, `Gamma(n) = (n-1)!`, computed by Stirling's
+series after an integer-recurrence reduction (`docs/05-funciones-cientificas.md`):
+
+```
+$ dz-cli gamma 5 --gates
+~20;000000000001
+gates: cycle=248400240 min=404117000 max=298684735 lit=203250444 thr=45384252 total=1199836671 depth=110743 recon=0
+```
+
+`20;000000000001` dozenal is `24.0000000000006...` decimal (`Gamma(5) = 4! = 24`);
+the trailing noise past the twelfth fractional digit is the truncation the
+series leaves at the working scale, not a bug.
+
 ## 4. Use `--json` when the output is for you
 
 Plain text is for a human reading a terminal. When an agent will parse the

@@ -10,7 +10,7 @@
 
 use dz_gates::{Digit, DozGates, MvlGates};
 use dz_num::DzFixed;
-use dz_sci::{acos, asin, atan, constants, cos, exp, ln, log12, sin, sqrt, tan};
+use dz_sci::{acos, asin, atan, constants, cos, exp, gamma, ln, log12, sin, sqrt, tan};
 
 /// Test-only bridge to a native float. Walks the little-endian digits and
 /// weights them by powers of twelve.
@@ -177,6 +177,63 @@ fn inverse_trig_matches_the_oracle() {
     assert!(asin(&g, &int(&g, 2), SCALE).is_err());
 }
 
+/// `1;6` dozenal, i.e. three halves (`1.5`).
+fn three_halves<G: DozGates>(g: &G) -> DzFixed {
+    int(g, 1).add(g, &half())
+}
+
+#[test]
+fn gamma_matches_the_oracle() {
+    // Rust's standard library has no gamma function, so unlike the other
+    // tests here this one cannot get its reference values from an `f64`
+    // method call. The five references below are independent mathematical
+    // facts (a factorial, and the classical `sqrt(pi)` identities for the
+    // half-integer arguments), not a transcription of this crate's own
+    // output -- the point of the test is to catch this implementation
+    // disagreeing with them.
+    let g = MvlGates::new();
+
+    // Gamma(1) = 0! = 1.
+    assert_close(to_f64(&gamma(&g, &int(&g, 1), SCALE).unwrap()), 1.0, "gamma 1");
+
+    // Gamma(5) = 4! = 24, the test that the integer-recurrence reduction
+    // (Gamma(x) = Gamma(x+n) / (x*(x+1)*...*(x+n-1))) lands on the right
+    // product.
+    assert_close(to_f64(&gamma(&g, &int(&g, 5), SCALE).unwrap()), 24.0, "gamma 5");
+
+    // Gamma(1/2) = sqrt(pi), compared against this crate's own `sqrt`/`pi`
+    // rather than a literal, so the test also pins down that gamma agrees
+    // with the rest of dz-sci, not just with an external constant.
+    let (sqrt_pi, _) = sqrt(&g, &constants::pi(SCALE), SCALE).unwrap();
+    assert_close(
+        to_f64(&gamma(&g, &half(), SCALE).unwrap()),
+        to_f64(&sqrt_pi),
+        "gamma 1/2 vs sqrt(pi)",
+    );
+
+    // Gamma(3/2) = sqrt(pi)/2.
+    assert_close(
+        to_f64(&gamma(&g, &three_halves(&g), SCALE).unwrap()),
+        to_f64(&sqrt_pi) / 2.0,
+        "gamma 3/2",
+    );
+
+    // Gamma(1/4) ~= 3.6256099082219083119..., the constant this function
+    // was added to compute (Investigations/10-hallazgo-medida-no-aditiva-
+    // ingrediente2.md's L1 capacity uses Gamma(1/4)^2).
+    assert_close(
+        to_f64(&gamma(&g, &quarter(), SCALE).unwrap()),
+        3.625_609_908_221_908,
+        "gamma 1/4",
+    );
+
+    // Domain: gamma has poles at zero and the negative integers, and this
+    // implementation does not extend past zero at all (no reflection
+    // formula, documented in docs/05-funciones-cientificas.md).
+    assert!(gamma(&g, &DzFixed::zero(), SCALE).is_err());
+    assert!(gamma(&g, &int(&g, 1).neg(), SCALE).is_err());
+}
+
 #[test]
 fn every_backend_agrees() {
     // The functions are backend-agnostic by construction (they only call
@@ -187,4 +244,8 @@ fn every_backend_agrees() {
     let a = sin(&mvl, &int(&mvl, 2), 6).unwrap();
     let b = sin(&crt, &int(&crt, 2), 6).unwrap();
     assert_eq!(a.compare(&mvl, &b), std::cmp::Ordering::Equal);
+
+    let ga = gamma(&mvl, &int(&mvl, 3), 6).unwrap();
+    let gb = gamma(&crt, &int(&crt, 3), 6).unwrap();
+    assert_eq!(ga.compare(&mvl, &gb), std::cmp::Ordering::Equal);
 }

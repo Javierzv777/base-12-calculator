@@ -45,11 +45,13 @@
 pub mod constants;
 pub mod elementary;
 pub mod exact;
+pub mod gamma;
 pub mod trig;
 pub mod util;
 
 pub use constants::{euler, ln12, pi};
 pub use elementary::{exp, ln, log12, log_base, sqrt};
+pub use gamma::gamma;
 pub use trig::{acos, asin, atan, cos, sin, tan};
 
 /// Default working precision for scientific functions: 12 fractional

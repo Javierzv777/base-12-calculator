@@ -4,6 +4,9 @@ Estado: **implementado**. `sqrt`, `exp`, `ln`, `log`, `sin`, `cos`, `tan`,
 `asin`, `acos`, `atan`, las constantes `pi`/`tau`/`euler` y el bloque exacto
 (`abs`, `sign`, `floor`, `ceil`, `round`, `trunc`, `min`, `max`) están
 disponibles en el REPL, en el modo de una invocación del CLI y en la GUI.
+`gamma` (§3.7) también está implementada y en el mismo registro, pero está
+marcada `cli_only` a propósito: está en el REPL y en el CLI, no en el
+teclado de la GUI.
 
 PLAN.md §10bis-E dejaba las trascendentes fuera de alcance ("requieren CORDIC
 dozenal — es un proyecto propio"). Lo que realmente bloqueaba no era la
@@ -137,6 +140,106 @@ luego aplica la identidad del ángulo mitad
 en una docena de términos. `asin(x) = atan(x/√(1−x²))` con los extremos
 `±1` respondidos directamente, y `acos(x) = π/2 − asin(x)`.
 
+### 3.7 `gamma` — recurrencia entera + serie de Stirling, **solo CLI**
+
+`gamma` (`crates/dz-sci/src/gamma.rs`) es la función Gamma de Euler,
+`Γ(x) = ∫₀^∞ t^(x-1) e^-t dt`, con `Γ(n) = (n-1)!` en los enteros positivos y
+`Γ(1/2) = √π`. Se añadió para poder calcular con las propias puertas del
+proyecto la constante de investigación
+`√2·Γ(1/4)²/(4π^{3/2})` (`Investigations/10-hallazgo-medida-no-aditiva-ingrediente2.md`),
+en vez de citarla de una tabla externa.
+
+**Por qué no un Lanczos con coeficientes mágicos.** La regla de pureza de
+`CLAUDE.md` prohíbe calcular Gamma en `f64` nativo y solo formatear el
+resultado en dozenal — sería exactamente el error que el commit `18565f8` ya
+corrigió una vez, ahora para Gamma en vez de para la multiplicación. Una
+aproximación de Lanczos técnicamente no toca un `Digit` con un operador
+nativo si sus coeficientes se escriben como literales `DzFixed`, pero esos
+coeficientes salen de un ajuste numérico contra `f64` que este proyecto no
+tiene y no quiere reimplementar: no se **derivan** de nada de este crate, se
+**importan** enteros. La serie de Stirling, en cambio, es un desarrollo
+asintótico de manual en los números de Bernoulli — constantes matemáticas
+exactas, la misma categoría que los literales `1/2`, `1/3` que el resto de
+este crate ya usa; introducirlas como fracciones exactas es el mismo patrón
+que los coeficientes de las series de Taylor existentes, no una tabla
+importada.
+
+**El algoritmo, en dos pasos:**
+
+1. **Reducción por recurrencia entera** (exacta, sin aproximar):
+   `Γ(x) = Γ(x+n) / (x·(x+1)·…·(x+n-1))`. Se empuja `x` hacia arriba de uno
+   en uno, acumulando el producto exacto (multiplicación puerta a puerta),
+   hasta que `x+n ≥ 12` — el propio radix del proyecto, no una propiedad de
+   Stirling; cualquier umbral desde ~6 funciona.
+2. **Serie de Stirling** sobre el argumento ya reducido, en espacio
+   logarítmico:
+   ```
+   ln Γ(z) = (z − 1/2)·ln(z) − z + (1/2)·ln(2π) + Σ_{k=1}^{5} B_2k / (2k·(2k−1)·z^(2k−1))
+   ```
+   con `B_2=1/6, B_4=-1/30, B_6=1/42, B_8=-1/30, B_10=5/66` — cinco términos,
+   suficientes porque el argumento ya está por encima de doce. `ln`, `exp` y
+   `pi` son las mismas funciones de `elementary.rs`/`constants.rs` descritas
+   arriba; `z^(2k-1)` se construye por multiplicación/división
+   gate-compuesta repetida (`z^-1`, luego avanzando por `z^-2` cada término),
+   nunca por un exponente nativo sobre el valor del dígito.
+3. `Γ(x) = exp(ln Γ(x+n)) / producto`.
+
+**Modelo de exactitud.** A diferencia de `sqrt`, no hay un caso estructural
+barato que verificar (la serie de Stirling nunca termina), así que `gamma`
+se reporta **siempre aproximada**, igual que `exp`/`ln`/las trigonométricas
+— aunque en enteros pequeños el error es minúsculo porque el numerador y el
+denominador de la recurrencia comparten la misma aproximación de Stirling y
+gran parte del error se cancela.
+
+**Verificado contra referencias conocidas** (`crates/dz-sci/tests/accuracy.rs::gamma_matches_the_oracle`,
+escala 10, tolerancia `1e-9`, oráculo `f64` solo en el test):
+
+| entrada | valor esperado | resultado dozenal (`dz-cli gamma <x> --gates`, escala 12) |
+|---|---|---|
+| `1` | `Γ(1) = 0! = 1` | `~1` |
+| `5` | `Γ(5) = 4! = 24` | `~20;000000000001` (`20` dozenal = 24) |
+| `0;6` (1/2) | `Γ(1/2) = √π ≈ 1,7724538509` | `~1;932972X0X89` — idéntico a `sqrt(pi)` calculado por separado |
+| `1;6` (3/2) | `Γ(3/2) = √π/2 ≈ 0,8862269255` | `~0;X77497505446` |
+| `0;3` (1/4) | `Γ(1/4) ≈ 3,6256099082219083119` | `~3;761079214563` |
+
+**Dominio limitado, honestamente.** Solo `x > 0`: no hay fórmula de
+reflexión para extender a no-enteros negativos (`Γ(x)·Γ(1-x) = π/sin(πx)`
+queda como trabajo futuro, no como algo que esta llamada calcule mal en
+silencio). `SciError::Domain` en `x ≤ 0`.
+
+**Coste medido** (backend MVL, modo fijo, escala 12,
+`dz-cli eval "gamma(0;3)" --mode fixed --scale 12 --gates`, es decir `Γ(1/4)`,
+el valor que motivó añadir esta función):
+
+| expresión | puertas |
+|---|--:|
+| `gamma(1)` | 1.199.174.707 |
+| `gamma(5)` | 1.199.836.671 |
+| `gamma(0;3)` (`Γ(1/4)`) | 1.226.044.891 |
+
+Un orden de magnitud por encima de `atan(1)` (352.673.718 puertas, §6): cada
+llamada a `gamma` hace su propia reducción de argumento (~12 sumas/
+multiplicaciones) y luego dos `ln` completos (uno para `ln(z)`, otro para
+`ln(2π)`, que a su vez llama a `ln(pi)`) más un `exp` — todos ellos
+trascendentes de coste ya alto por sí solas, encadenadas en una sola
+llamada. Es el coste esperado, no una regresión: `gamma` es la función más
+cara del catálogo precisamente porque compone las demás.
+
+**Por qué es CLI/REPL-only y no aparece en el teclado de la GUI.** Fue un
+requisito explícito del encargo, no una limitación técnica. `FnInfo` ganó un
+campo `cli_only: bool` (`crates/dz-eval/src/functions.rs`), que
+`SimpleFn::cli_only` (`crates/dz-eval/src/builtins.rs`) responde consultando
+una lista de nombres (`CLI_ONLY_FUNCTIONS = &["gamma"]`) en vez de añadir el
+campo a cada una de las ~20 entradas existentes. `dz_api::functions()` sigue
+sin filtrar — es lo que `dz-cli --functions`/`:funcs` necesitan para seguir
+listando `gamma` — y el único sitio que lee el flag es
+`app/src-tauri::commands::list_functions`, que descarta las entradas
+`cli_only` antes de mandarlas al frontend. Un solo catálogo en `dz-eval`
+(sin tabla duplicada en la GUI), una sola razón (el filtro de
+`list_functions`) por la que la GUI no la ve — `gamma(x)` sigue siendo una
+llamada válida si alguien la teclea a mano en cualquiera de las dos cajas de
+la GUI; lo único que no existe es la tecla.
+
 ---
 
 ## 4. Constantes: sintetizadas, memoizadas, y con coste cero para el usuario
@@ -173,7 +276,7 @@ Cero puertas: el usuario está leyendo una constante ya sintetizada.
 |---|---|---|
 | Exactas siempre | `abs`, `sign`, `floor`, `ceil`, `round`, `trunc`, `min`, `max` | valor exacto, también en modo racional (implementación propia sobre `DzRational`, no pasa por punto fijo) |
 | Exactas a veces | `sqrt`, `log` | exacto y verificado en cuadrados/potencias perfectas; aproximado en el resto |
-| Aproximadas | `exp`, `ln`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `pi`, `tau`, `euler` | redondeo half-even a la escala de trabajo |
+| Aproximadas | `exp`, `ln`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `gamma`, `pi`, `tau`, `euler` | redondeo half-even a la escala de trabajo |
 
 La marca viaja por toda la expresión: `sin(1) + 1/3` es aproximada, `1/3 + 1`
 no. Y en modo racional un resultado aproximado **no se imprime como fracción**
@@ -186,6 +289,11 @@ Verificación: `crates/dz-sci/tests/accuracy.rs` compara contra `f64` como
 oráculo externo (permitido solo en tests, PLAN.md §8.3) para las once
 funciones y las cuatro constantes, incluida la reducción de ángulos
 (`sin(20)`), los inversos (`ln(exp(4))`) y la coincidencia entre backends.
+`gamma` se verifica aparte, en `gamma_matches_the_oracle` (§3.7): la
+biblioteca estándar de Rust no tiene función Gamma, así que ahí el oráculo
+son cinco identidades matemáticas independientes (un factorial y las
+identidades clásicas de `√π` en los semienteros) en vez de un método de
+`f64`.
 
 ---
 

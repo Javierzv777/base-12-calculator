@@ -382,6 +382,36 @@ mod tests {
     }
 
     #[test]
+    fn gamma_is_registered_but_flagged_cli_only() {
+        // `gamma` must dispatch normally (so `dz-cli gamma 1` and `:funcs`
+        // still work) but be the only entry a GUI keypad should skip -- see
+        // `app/src-tauri::commands::list_functions`, the one place that
+        // reads this flag.
+        let registry = crate::functions::FnRegistry::with_builtins();
+        let catalog = registry.catalog();
+        let gamma_info = catalog
+            .iter()
+            .find(|f| f.name == "gamma")
+            .expect("gamma must be in the catalog");
+        assert!(gamma_info.cli_only, "gamma should be flagged cli_only");
+
+        let others_flagged: Vec<&str> = catalog
+            .iter()
+            .filter(|f| f.name != "gamma" && f.cli_only)
+            .map(|f| f.name)
+            .collect();
+        assert!(
+            others_flagged.is_empty(),
+            "only gamma should be cli_only, also flagged: {:?}",
+            others_flagged
+        );
+
+        let g = MvlGates::new();
+        let e = expr("gamma(1)");
+        evaluate(&g, &e).expect("gamma(1) should evaluate through the normal dispatch path");
+    }
+
+    #[test]
     fn pow_integer_exponent_still_works() {
         let g = MvlGates::new();
         let e = expr("2^3");

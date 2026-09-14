@@ -89,6 +89,9 @@ pub enum Category {
     Root,
     Exponential,
     Trigonometry,
+    /// Functions that are registered but not meant for a keypad (see
+    /// `FnInfo::cli_only`). Currently only `gamma`.
+    Special,
 }
 
 impl Category {
@@ -99,6 +102,7 @@ impl Category {
             Category::Root => "root",
             Category::Exponential => "exponential",
             Category::Trigonometry => "trigonometry",
+            Category::Special => "special",
         }
     }
 }
@@ -114,6 +118,15 @@ pub struct FnInfo {
     /// Whether results are exact in every case (`abs`) or an approximation
     /// at the working scale (`sin`).
     pub always_exact: bool,
+    /// Whether this function should be hidden from interfaces that render
+    /// the catalog as a fixed keypad (the GUI's scientific pad). The
+    /// registry is still the single point of extension -- this is a
+    /// presentational flag on `FnInfo`, not a second table: `dz-cli` reads
+    /// the catalog unfiltered, and `app/src-tauri::commands::list_functions`
+    /// is the one place that filters it out before sending it to the
+    /// frontend (see `gamma` in `dz-eval::builtins`, the function this flag
+    /// was added for).
+    pub cli_only: bool,
 }
 
 /// Implement this and register it; see the module documentation.
@@ -127,6 +140,14 @@ pub trait DozFunction: Send + Sync {
     /// even though `sqrt(9)` is exact, because that is decided per call --
     /// the per-call answer is the `exact` field of `FnValue`.
     fn always_exact(&self) -> bool {
+        false
+    }
+
+    /// Whether this function is excluded from interfaces that render the
+    /// catalog as a fixed keypad (see `FnInfo::cli_only`). Defaults to
+    /// visible everywhere, matching every function registered before this
+    /// flag existed.
+    fn cli_only(&self) -> bool {
         false
     }
 
@@ -164,6 +185,7 @@ pub trait DozFunction: Send + Sync {
             category: self.category(),
             description: self.description(),
             always_exact: self.always_exact(),
+            cli_only: self.cli_only(),
         }
     }
 }

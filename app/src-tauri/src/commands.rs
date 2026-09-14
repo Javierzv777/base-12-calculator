@@ -385,11 +385,18 @@ pub fn memory_clear(state: State<AppState>, face: Face) -> Result<SessionDto, St
 }
 
 /// The keypad's scientific section is built from this list, so a function
-/// registered in `dz-eval` appears in the GUI with no frontend change.
+/// registered in `dz-eval` appears in the GUI with no frontend change --
+/// except for functions marked `cli_only` (currently just `gamma`), which
+/// this filter keeps off the keypad on purpose. `dz-api::functions()`
+/// itself stays unfiltered -- `dz-cli` calls it directly for `--functions`
+/// and `:funcs`, and CLI availability is exactly what `cli_only` means to
+/// preserve. This is the one place that reads the flag; nothing else in
+/// the GUI re-derives or duplicates the function table.
 #[tauri::command]
 pub fn list_functions() -> Vec<FunctionDto> {
     dz_api::functions()
         .into_iter()
+        .filter(|info| !info.cli_only)
         .map(|info| FunctionDto {
             name: info.name.to_string(),
             min_args: info.arity.min,

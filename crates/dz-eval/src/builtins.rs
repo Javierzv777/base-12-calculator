@@ -11,8 +11,15 @@ use crate::functions::{Arity, Category, DozFunction, FnContext, FnInfo, FnRegist
 use crate::EvalError;
 use dz_gates::{DozGates, DynGates};
 use dz_num::{DzFixed, DzRational};
-use dz_sci::{constants, elementary, exact, trig};
+use dz_sci::{constants, elementary, exact, gamma, trig};
 use std::cmp::Ordering;
+
+/// Functions registered here but excluded from the GUI's scientific
+/// keypad (`app/src-tauri::commands::list_functions` filters on
+/// `FnInfo::cli_only`, sourced from this list). `gamma` is the only entry:
+/// it was requested as a research/CLI tool, not a keypad key -- see
+/// `docs/05-funciones-cientificas.md` section on `gamma`.
+const CLI_ONLY_FUNCTIONS: &[&str] = &["gamma"];
 
 type FixedImpl = fn(&dyn DozGates, &[DzFixed], &FnContext) -> Result<FnValue<DzFixed>, EvalError>;
 type RationalImpl =
@@ -47,6 +54,14 @@ impl DozFunction for SimpleFn {
     fn always_exact(&self) -> bool {
         self.always_exact
     }
+    /// Hidden from the GUI's keypad, kept in the CLI/REPL catalog. Checked
+    /// by name against `CLI_ONLY_FUNCTIONS` rather than a new field on
+    /// every `SimpleFn` literal below -- the user asked for `gamma`
+    /// specifically to stay off the GUI, and a name list is the minimal
+    /// change that says so without touching the ~20 existing entries.
+    fn cli_only(&self) -> bool {
+        CLI_ONLY_FUNCTIONS.contains(&self.name)
+    }
     fn info(&self) -> FnInfo {
         FnInfo {
             name: self.name,
@@ -54,6 +69,7 @@ impl DozFunction for SimpleFn {
             category: self.category,
             description: self.description,
             always_exact: self.always_exact,
+            cli_only: self.cli_only(),
         }
     }
     fn apply_fixed(
@@ -247,6 +263,10 @@ fn fixed_log(g: &dyn DozGates, a: &[DzFixed], ctx: &FnContext) -> Result<FnValue
     Ok(FnValue::approximate(elementary::log_base(
         &gates, &a[0], &a[1], ctx.scale,
     )?))
+}
+
+fn fixed_gamma(g: &dyn DozGates, a: &[DzFixed], ctx: &FnContext) -> Result<FnValue<DzFixed>, EvalError> {
+    Ok(FnValue::approximate(gamma::gamma(&DynGates(g), &a[0], ctx.scale)?))
 }
 
 // ------------------------------------------------------------- trigonometry
@@ -469,6 +489,15 @@ pub fn register_all(registry: &mut FnRegistry) {
             description: "arctangent, result in radians",
             always_exact: false,
             fixed: fixed_atan,
+            rational: None,
+        },
+        SimpleFn {
+            name: "gamma",
+            arity: Arity::exact(1),
+            category: Category::Special,
+            description: "gamma function (generalized factorial; Gamma(n) = (n-1)!); CLI only",
+            always_exact: false,
+            fixed: fixed_gamma,
             rational: None,
         },
     ];
