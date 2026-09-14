@@ -238,10 +238,7 @@ cap(bola unidad L₁) = √2 · Γ(1/4)² / (4π^{3/2}) ≈ 0,83462684167...
 Fuente citada explícitamente en la búsqueda: cálculo estándar de capacidad
 logarítmica de un cuadrado vía la constante de la lemniscata (aparece en
 Pólya–Szegő, *Isoperimetric Inequalities in Mathematical Physics*, y en
-tratamientos modernos de capacidad logarítmica de polígonos). **No se
-verificó esta cifra con una segunda fuente independiente** — es la única
-cifra de este documento con una sola fuente, y se marca así explícitamente
-como el punto más débil de la verificación (ver §7).
+tratamientos modernos de capacidad logarítmica de polígonos).
 
 `Γ(1/4)` es la constante lemniscática, trascendente, y —por un teorema de
 Chudnovsky/Nesterenko (independencia algebraica de `π`, `Γ(1/4)` y `e^π`)—
@@ -249,14 +246,46 @@ Chudnovsky/Nesterenko (independencia algebraica de `π`, `Γ(1/4)` y `e^π`)—
 segunda constante trascendente genuinamente distinta que aparece
 multiplicada y dividida por potencias fraccionarias de π.
 
-### 4.2 El binario no puede verificar esta cifra
+### 4.2 Actualización (2026-09-14): verificado con el propio binario, ya no solo citado
 
-`dz-cli` no tiene función Gamma ni constante lemniscática en su catálogo
-(`--functions`, comprobado: solo `pi`, `tau`, `euler` como constantes). Por
-eso el valor de §4.1 se cita de la literatura y **no** se presenta como una
-cifra dozenal calculada por el binario — sería importar un número que el
-proyecto no puede producir con sus propias puertas, exactamente lo que el
-protocolo prohíbe hacer "a mano".
+Cuando se escribió esta sección, `dz-cli` no tenía función Gamma en su
+catálogo, así que la cifra de §4.1 quedó como una cita sin verificación
+independiente — el punto más débil declarado en §7. Eso cambió: el usuario
+pidió implementar `gamma` en el core del proyecto (motivado directamente por
+este hallazgo), con la serie de Stirling y números de Bernoulli exactos,
+construida sobre las primitivas dozenales ya existentes (`ln`, `exp`, `sqrt`),
+sin ningún atajo de calcular en `f64` nativo y convertir — ver
+`crates/dz-sci/src/gamma.rs` y `docs/05-funciones-cientificas.md` §3.7.
+
+Con `gamma` disponible, la cifra de esta sección se **recalculó desde cero
+con el propio motor de puertas**, en vez de citarse:
+
+```
+$ target/release/dz-cli.exe eval "sqrt(2)*gamma(0;3)^2 / (4*exp(1;6*ln(pi)))" --mode fixed --scale 12
+~0;X0229X48XE083XE069682291
+```
+
+(`π^{3/2}` se escribe `exp(1;6*ln(pi))` porque `^` solo acepta exponentes
+enteros en este proyecto — la vía ya documentada para potencias fraccionarias;
+`0;3` es `1/4` dozenal.)
+
+Comparado con la conversión de la cifra citada en §4.1 (`0,83462684167`,
+truncada a 11 decimales, convertida con `--input-base 10`):
+
+```
+0;X0229X48XX984627E13779E1   (de la cita, truncada)
+0;X0229X48XE083XE069682291   (calculada con gamma propio)
+```
+
+Coinciden dígito a dígito hasta `X0229X48X` (9 dígitos dozenales) y divergen
+justo donde se agota la precisión de la cifra decimal citada — la firma
+esperable de reemplazar una cita truncada por cómputo propio con más cifras
+de guardia, no un error. **El resultado no cambia de signo**: sigue siendo
+trascendente, sigue sin patrón dozenal, y el coste —1.770.743.155 puertas,
+profundidad 112.404, medido con `--gates`— confirma independientemente que
+es, con mucho, la cantidad más cara de calcular de toda la serie de
+"ingredientes". Es la primera cifra de `Γ(1/4)` en todo el proyecto que sale
+del propio instrumento en vez de la literatura.
 
 ### 4.3 Por qué la inversión no es casualidad — el mecanismo
 
@@ -411,19 +440,22 @@ concreta).
 
 ## 7. Lo que no funcionó (obligatorio, no vacío)
 
-- **La cifra de §4.1 (capacidad del cuadrado) tiene una sola fuente
-  verificada**, no dos como el resto de las fórmulas citadas. `dz-cli` no
-  puede calcularla (sin función Gamma), así que no hay ni siquiera un control
-  numérico independiente con el propio instrumento del proyecto. Es la parte
-  más débil del documento y se declara así explícitamente, en vez de
-  presentarla con la misma confianza que `cap(disco)=r`, que sí tiene
-  derivación propia completa.
-- **No se verificó una derivación propia de la fórmula del cuadrado.** A
-  diferencia de §2.2 (disco, derivado a mano vía función de Green), la
-  Schwarz–Christoffel de un cuadrado requiere maquinaria de funciones
-  hipergeométricas que está fuera del alcance razonable de este documento sin
-  volverse un tratado de análisis complejo aparte. Se cita, no se rederiva —
-  y se dice así, en vez de disimular la diferencia de rigor entre las dos
+- **La cifra de §4.1 (capacidad del cuadrado) tenía una sola fuente
+  bibliográfica y ningún control numérico propio cuando se escribió esta
+  sección.** *Actualizado en §4.2 (2026-09-14): ya no es cierto* — con
+  `gamma` implementado en `crates/dz-sci/src/gamma.rs`, el valor se
+  recalculó desde cero con el binario y coincide con la cita hasta donde
+  ésta tenía precisión. Sigue sin haber una **segunda fuente bibliográfica**
+  independiente de la fórmula `√2·Γ(1/4)²/(4π^{3/2})` en sí (eso es un hueco
+  distinto, ver el punto siguiente), pero el hueco de "sin control numérico
+  propio" que este documento señalaba está cerrado.
+- **No se verificó una derivación propia de la fórmula del cuadrado
+  (`√2·Γ(1/4)²/(4π^{3/2})` en sí, no su valor numérico).** A diferencia de
+  §2.2 (disco, derivado a mano vía función de Green), la Schwarz–Christoffel
+  de un cuadrado requiere maquinaria de funciones hipergeométricas que está
+  fuera del alcance razonable de este documento sin volverse un tratado de
+  análisis complejo aparte. Se cita, no se rederiva — y se dice así, en vez
+  de disimular la diferencia de rigor entre las dos
   secciones.
 - **No se exploró la energía de Riesz para exponentes `s` genéricos**, que
   la tabla de §1 señala como la generalización natural y que probablemente

@@ -715,15 +715,30 @@ de una fuente autorizada, corregido en vez de repetido.
 
 **La prueba contra L₁, siguiendo el estándar del resto de la serie, invierte
 la polaridad habitual.** La bola unidad de L₁ es el cuadrado de vértices
-`(±1,0), (0,±1)`. Su capacidad logarítmica, citada de la literatura (Pólya–
-Szegő; no rederivada — Schwarz–Christoffel de un cuadrado exige funciones
-hipergeométricas fuera del alcance de una derivación autocontenida, y
-`dz-cli` no tiene función Gamma para contrastarla — es la cifra más débil del
-documento):
+`(±1,0), (0,±1)`. Su capacidad logarítmica, cuya **fórmula** se cita de la
+literatura (Pólya–Szegő; no rederivada — Schwarz–Christoffel de un cuadrado
+exige funciones hipergeométricas fuera del alcance de una derivación
+autocontenida):
 
 ```
 cap(cuadrado L₁) = √2 · Γ(1/4)² / (4π^{3/2}) ≈ 0,8346...
 ```
+
+*Actualización 2026-09-14*: a raíz de este hallazgo se implementó `gamma` en
+el core del proyecto (`crates/dz-sci/src/gamma.rs`, serie de Stirling con
+números de Bernoulli exactos, sin ningún atajo por `f64` nativo). El
+**valor** ya no depende solo de la cita — se recalculó con el propio motor de
+puertas:
+
+```
+$ target/release/dz-cli.exe eval "sqrt(2)*gamma(0;3)^2 / (4*exp(1;6*ln(pi)))" --mode fixed --scale 12
+~0;X0229X48XE083XE069682291
+```
+
+coincide con la conversión de la cifra citada hasta donde ésta tenía
+precisión (9 de 12+ dígitos dozenales), y cuesta 1.770.743.155 puertas —la
+cantidad más cara de calcular de toda la lista de ingredientes. La fórmula
+en sí sigue citada, no rederivada; el valor, ya no.
 
 Trascendente, con π combinado con `Γ(1/4)` (la constante lemniscática), que es
 **algebraicamente independiente** de π (Chudnovsky/Nesterenko). En todo el
@@ -926,11 +941,15 @@ Para que nadie lea aquí más de lo que hay:
   segundo toro asimétrico para confirmar que la cancelación de defectos no es
   artefacto de la simetría cúbica, ni se exploró χ<0 discreto (más de un
   agujero, o no orientable).
-- `10` cita, sin rederivar, la capacidad logarítmica del cuadrado
-  (`√2·Γ(1/4)²/(4π^{3/2})`) de una sola fuente — Schwarz–Christoffel de un
-  cuadrado excede lo razonable para una derivación autocontenida, y `dz-cli`
-  no tiene función Gamma para un control numérico independiente. Es la cifra
-  menos verificada de toda la serie. Tampoco se exploró si alguna bola `Lp`,
+- `10` cita, sin rederivar, la **fórmula** de la capacidad logarítmica del
+  cuadrado (`√2·Γ(1/4)²/(4π^{3/2})`) — Schwarz–Christoffel de un cuadrado
+  excede lo razonable para una derivación autocontenida. *Actualizado
+  2026-09-14*: el **valor** ya no depende solo de esa cita — se implementó
+  `gamma` en el core (`crates/dz-sci/src/gamma.rs`) precisamente por este
+  hallazgo, y `dz-cli eval "sqrt(2)*gamma(0;3)^2 / (4*exp(1;6*ln(pi)))"` lo
+  recalcula desde las puertas propias, coincidiendo con la cita hasta donde
+  ésta tenía precisión. Sigue sin una segunda fuente bibliográfica de la
+  fórmula en sí. Tampoco se exploró si alguna bola `Lp`,
   `p∈(1,∞)`, tiene capacidad logarítmica racional — la familia `Lp` regaló
   racionales baratos para perímetro/diámetro (§4.7–§4.8) y no se comprobó si
   el mismo truco funciona aquí.
