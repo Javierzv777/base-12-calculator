@@ -5,14 +5,15 @@ hipótesis de `planteamientos.md`. Cuatro líneas (A constantes, B lugares,
 C análisis, D dozenal) corrieron en paralelo contra el mismo protocolo, con el
 calculador de puertas de este repositorio como instrumento. Los informes
 completos están en `01-hallazgos-{A,B,C,D}-*.md`; las cifras compartidas y las
-trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `11`
+trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `12`
 son extensiones posteriores al cierre, abiertas por preguntas del usuario sobre
 hallazgos concretos; cada una está resumida en §4.5, §4.6, §4.7, §4.8, §4.9,
-§4.10 y §4.11.
+§4.10, §4.11 y §4.12.
 
-Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-09-14 (`09`, `10`
-y `11`, la lista de "ingredientes" abierta por la reinterpretación de la
-afirmación de Kryon sobre π — ver §4.9-§4.11 para el contexto).
+Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-10-07 (`12`,
+Gödel, abierta por un vídeo divulgativo y fuera de la lista de "ingredientes"
+de `09`-`11`, que sigue siendo la abierta por la afirmación de Kryon sobre π —
+ver §4.9-§4.11 para ese contexto y §4.12 para ésta).
 Revisión crítica aplicada: 2026-09-13 (ver §8).
 
 ---
@@ -853,6 +854,43 @@ o `10` — la pregunta original presupone estructura (curvas, rotación
 continua) que este sistema numérico no tiene. Con los tres ingredientes: uno
 negativo directo, uno positivo con polaridad invertida, uno que disuelve la
 pregunta. Ninguno vindica la lectura de Kryon.
+
+### 4.12 ¿Qué puede decir de Gödel este instrumento? Casi nada del teorema, algo de la aritmetización
+
+Cuarta extensión posterior al cierre (`12-hallazgo-godel-incompletitud.md`),
+abierta por un vídeo divulgativo sobre los dos teoremas de incompletitud. **Gödel
+no se resuelve** y no se intentó; los teoremas no tienen π, métrica ni base, así
+que la pregunta de la serie casi no se traslada (categoría **(IV)** de §4.11).
+Predicciones `PG1`-`PG6` registradas antes de medir; `PG3` se cumplía solo
+en el punto registrado y se retiró al re-medir con `valuation` (`12` §10.2); las demás se cumplen.
+
+- **La calculadora es un evaluador de términos cerrados, no un sistema
+  deductivo.** Su fragmento exacto decide igualdades y desigualdades cerradas
+  (decidible y completo; le falta el cuantificador no acotado que activa Gödel).
+  Su fragmento aproximado **no decide**: `sign(sqrt(2)*sqrt(2)-2)` da `~-1` y
+  `sign(sin(1)^2+cos(1)^2-1)` da `~1`, y ambos términos valen 0. Es un límite de
+  la implementación y de las funciones reales, no de Gödel.
+- **Numeración (casilla III, dependiente de la máquina).** La posicional en base 12
+  se lee y se descodifica a 0 puertas de conversión porque la representación del
+  instrumento *es* esa; leer el mismo valor en base 10 crece de forma cuadrática
+  (segunda diferencia constante 1.784, sobre una sola cadena de 6 cifras) y volver
+  cuesta más. Las potencias de primos descodifican con división restauradora:
+  6.254.722 puertas para 6 símbolos con `valuation` frente a 0 (la cifra primera, 37.366.435, era `mod` + `div` por
+  paso). En una máquina decimal los papeles se invertirían; no se midió.
+- **Que 2 y 3 sean los factores de 12 no compraba nada medible en `mod`** (por 2, 3, 4, 6
+  cuesta lo mismo que por 5, 7, ↋; el instrumento no usaba la regla del último
+  dígito). Se construyó (`divisible`: 36-39 puertas frente a 20.563-754.677 de `div_rem`, `12` §10.3). Lo otro real son los ceros finales, `min(⌊a/2⌋, b)`, que
+  cualquier base con esos factores comparte. Coincidencia de vocabulario,
+  casilla (III).
+- **Consistencia acotada: (IV).** Las expresiones no tenían bucles ni
+  cuantificadores; hoy `dz-cli exists|forall` es un bucle acotado de `dz-api` (`12` §10). Un candidato cuesta 195.367
+  puertas, el barrido es lineal en candidatos y los candidatos son exponenciales
+  en la longitud de la prueba. Nada de esto se acerca a `Con(F)`, que lleva `N`
+  sin cota.
+
+Lo que no se hizo: no se implementó `Prf`, ni lema diagonal, ni Rosser, ni Gentzen,
+ni una máquina decimal; una sola cadena y solo backend MVL. Ver §7-§8 de `12`. Las
+afirmaciones laterales del vídeo no se verificaron.
 
 ---
 
