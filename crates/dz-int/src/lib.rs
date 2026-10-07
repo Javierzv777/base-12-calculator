@@ -11,10 +11,15 @@
 //! `trace`).
 
 pub mod dzint;
+pub mod number_theory;
 pub mod trace;
 
 pub use dzint::{
     dz_to_small_usize, from_base10_digits, pow10, small_usize_to_dz, to_base10_digits, DivRemError,
     Dz, NoSubTrace, Sign, SubTraceSink,
+};
+pub use number_theory::{
+    divisible, last_digit_divisible, valuation, Divisibility, DivisibilityMethod, Valuation,
+    ValuationError, ZeroDivisor,
 };
 pub use trace::{subtract_trace, SubTrace};

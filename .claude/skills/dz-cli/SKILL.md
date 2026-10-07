@@ -512,6 +512,88 @@ gates: cycle=248400240 min=404117000 max=298684735 lit=203250444 thr=45384252 to
 the trailing noise past the twelfth fractional digit is the truncation the
 series leaves at the working scale, not a bug.
 
+### "Quotient and remainder, valuation, divisibility, bounded search"
+
+Four top-level commands for integer number theory (like `trace` and
+`compare`, they are not operations). All take `--gates`, `--json`,
+`--backend` and `--input-base`, print `name: value` lines, and are
+**CLI-only** (the GUI has none of them). Operands must be exact integers;
+a fraction or an approximate value is an error.
+
+```
+$ dz-cli divrem 8820 7 --gates
+quotient: 12X6
+remainder: 6
+gates: cycle=24552 min=36948 max=27772 lit=19464 thr=5184 total=113920 depth=294 recon=0
+
+$ dz-cli divrem -8820 7
+quotient: -12X6
+remainder: -6
+```
+
+One `div_rem` pass; the remainder takes the sign of the dividend.
+
+```
+$ dz-cli valuation 8820 5
+exponent: 4
+cofactor: 20
+
+$ dz-cli valuation 0 2
+error: valuation of zero is undefined (every power divides zero)
+```
+
+`valuation n p` is the largest `k` with `p^k | n`, plus what is left over.
+`n = 0` and `p < 2` are errors. `valuation(n, p)` and `divisible(n, d)` also
+work inside `eval` expressions.
+
+```
+$ dz-cli divisible 8820 4 --json
+{"ok":true,"divisible":true,"method":"last-digit","gate_count":{"cycle":11220,"min":18494,"max":13768,"lit":9495,"thr":2388,"total":55365},"depth":254,"reconstruction_ops":0}
+
+$ dz-cli divisible 8820 7
+divisible: false
+method: div_rem
+```
+
+For `d` in `2, 3, 4, 6, 10` (`10` is twelve) the answer is read off the last
+digit; any other `d` falls back to division, and `method` says which ran.
+**Read the cost carefully:** the 55,365 gates and depth 254 above are almost
+all *reading the operands* (`eval 8820 --gates` alone is 45,001 gates, depth
+254). The decoder itself is 36-39 gates at depth 13, whatever the length of
+`n`; `cargo run -p dz-int --release --example divisibility_cost` isolates it.
+
+```
+$ dz-cli exists 1000 "i*i = 8909"
+quantifier: exists
+holds: true
+witness: X3
+checked: X4
+
+$ dz-cli forall 20 "i<5"
+quantifier: forall
+holds: false
+counterexample: 5
+checked: 6
+```
+
+`forall`/`exists <N> "<body>"` runs a bound variable over `0 .. N-1` and
+stops at the first witness / counterexample. The body **holds when its value
+is nonzero**, or is one relation `lhs = rhs` (also `!=`, `<`, `<=`, `>`,
+`>=`). The variable is `i`; `--var <name>` renames it. It must lex as a
+*name*, so the digit aliases are refused, as are catalog names:
+
+```
+$ dz-cli exists 5 x --var x
+error: bad variable name 'x': it must be a run of letters that is a name, not a number (x, t, e, X, T, E are digits)
+
+$ dz-cli exists 5 "sin(i)=0"
+error: the body is approximate (a truncated series); a quantifier needs an exact decision
+```
+
+It is bounded, so always decidable; there is no unbounded form on purpose.
+`--gates` is the aggregate over all candidates that ran, and `depth` is that
+of the deepest *single* candidate. Quote the body: it contains `*`, `<`, `>`.
+
 ## 4. Use `--json` when the output is for you
 
 Plain text is for a human reading a terminal. When an agent will parse the

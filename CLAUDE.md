@@ -25,13 +25,14 @@ Antes de dar por bueno un cambio: `pwsh tools/lint-purity.ps1`.
 
 ## Comandos
 
-`cargo` no está en el PATH. Está en `C:\Users\ADMIN\.cargo\bin`.
+`cargo` no está en el PATH. Está en `.cargo\bin` dentro del perfil del usuario
+(`%USERPROFILE%\.cargo\bin`; en esta máquina, `C:\Users\ADMIN POSITIVOS\.cargo\bin`).
 
 ```bash
-export PATH="$PATH:/c/Users/ADMIN/.cargo/bin"   # bash
+export PATH="$PATH:$HOME/.cargo/bin"            # bash
 $env:PATH += ";$env:USERPROFILE\.cargo\bin"     # powershell
 
-cargo test --workspace              # 215 tests, ~3,5 min en debug
+cargo test --workspace              # 269 tests, ~3,5 min en debug
 cargo test --workspace --release    # mucho más rápido (~segundos)
 cargo clippy --workspace --all-targets
 cargo run -p dz-cli                 # REPL
@@ -42,6 +43,11 @@ cargo run -p dz-cli -- eval "144+11" --input-base 10  # entrada decimal, leída 
 cargo run -p dz-cli -- trace add EEE 1        # traza paso a paso (Fase 9)
 cargo run -p dz-cli -- compare mul 25 34      # los tres backends de una vez
 cargo run -p dz-cli -- trace mul 25 34 --csv  # CSV a stdout; --csv=ruta a fichero
+cargo run -p dz-cli -- divrem 8820 7 --gates     # cociente y resto de un solo div_rem
+cargo run -p dz-cli -- valuation 8820 5       # exponente p-ádico exacto y cofactor
+cargo run -p dz-cli -- divisible 8820 4 --gates # d | n; por último dígito si d divide a 12
+cargo run -p dz-cli -- exists 1000 "i*i = 8909" # cuantificador acotado (forall igual; --var nombre)
+cargo run -p dz-int --release --example divisibility_cost # último dígito vs div_rem
 cargo run -p dz-gates --example gate_counts   # conteos de puertas
 pwsh tools/lint-purity.ps1          # lint de pureza (4 reglas)
 
@@ -103,6 +109,7 @@ científicas; no conoce el AST.
 | `ge`, `flag_to_bool` | `src/circuits/comparator.rs` |
 | `ones_complement`, `radix_complement` | `src/circuits/complement.rs` |
 | `is_even_digit` | `src/circuits/parity.rs` |
+| `last_digit_divisible`, `divisor_row`, `SMALL_DIVISOR_TAGS` (divisibilidad por 2, 3, 4, 6, 12 desde el último dígito; filas sintetizadas con `half_adder` en un `OnceLock`, no tecleadas; 36–39 puertas según `d`, profundidad 13) | `src/circuits/divisibility.rs` |
 
 Fórmulas del sumador de un dígito (`adder.rs`):
 ```
@@ -145,6 +152,13 @@ y no sale por `Debug`.
 `src/trace.rs`: `subtract_trace` — la traza de una resta, honesta sobre que no
 existe un circuito restador (complemento a 11 → +1 → suma → decodificación si
 `a < b`).
+
+`src/number_theory.rs`: `valuation(n, p)` (`div_rem` repetido hasta resto no
+nulo; el exponente es un `Dz` contado con `add`; `n = 0` y `p < 2` son error) y
+`divisible`/`last_digit_divisible` (para `d` en `{2,3,4,6,12}` decide con el
+circuito del último dígito de `dz-gates`, genérico sobre `GateNet`, así que mide
+profundidad; para cualquier otro `d` **cae a `div_rem`** y lo dice en
+`method`). Investigación: `Investigations/12-hallazgo-godel-incompletitud.md`.
 
 Consecuencia para quien añada una operación nueva a `dz-int`: si la escribe con
 el patrón `*_net` genérico, la profundidad viene gratis. Si la escribe con
@@ -306,6 +320,18 @@ todo son `char`/`String` ya formateados por `dz-parse`), `compare_backends`
 los CSV (`gate_count_csv`, `trace_csv`, `trace_summary_csv`). Rust es la única
 autoridad del formato CSV: el texto no llega nunca a JavaScript.
 
+`src/theory.rs`: `execute_theory(&TheoryRequest) -> TheoryResponse` para
+`divrem`, `valuation`, `divisible` y los cuantificadores acotados `forall`/
+`exists`. Devuelve una lista de campos con nombre (más `gate_count`, `depth`,
+`reconstruction_ops`) y `theory_json_line`; error de petición = `ApiError::Theory`.
+Los cuantificadores recorren `0..N-1` con un contador `Dz` (`add`) y paran con
+`compare`; el cuerpo es verdadero si su valor es distinto de cero, o una relación
+`lhs = rhs` (`!=`, `<`, `<=`, `>`, `>=`); se evalúa en racional exacto y un cuerpo
+aproximado es error. Variable por defecto `i`; no puede ser un alias de dígito
+(`x`, `t`, `e`, `X`, `T`, `E`), un nombre del catálogo ni un símbolo del alfabeto
+configurado. La profundidad es la de **un** candidato. Sigue acotado y decidible;
+no hay `μ`-operador.
+
 `compare_backends` devuelve además un `Verdict` (`verdict(&[BackendCost])`):
 quién es el más barato, si el desempate vino de las reconstrucciones, el modelo
 de coste en texto y el resumen en prosa. **El veredicto se redacta en `dz-api`**
@@ -345,6 +371,18 @@ Los nombres `trace` y `compare` están **reservados explícitamente** en
 `build_operation`, antes de la rama que convierte cualquier función registrada en
 subcomando. `trace --gates` reporta `depth=n/a` a propósito: los circuitos
 trazados corren la instanciación `Values`, que no lleva niveles.
+
+Cuatro subcomandos de teoría de números (`dz-cli divrem a b`, `valuation n p`,
+`divisible n d`, `forall|exists <N> "<cuerpo>" [--var nombre]`) son comandos de
+primer nivel como `trace`/`compare`, van por `dz-api::theory`, imprimen
+`campo: valor` (o `--json`) y aceptan `--gates`, `--backend`, `--input-base`.
+`divrem`, `forall` y `exists` están reservados en `build_operation`. Son **solo
+CLI**: `valuation(n,p)` y `divisible(n,d)` también existen como funciones de
+expresión, pero están en `CLI_ONLY_FUNCTIONS` (mismo mecanismo que `gamma`), así
+que no aparecen en el teclado de la GUI; `app/` no se tocó. Un
+`divisible 8820 4` marca 55.365 puertas y profundidad 254, pero eso es casi todo
+**lectura de operandos**: el circuito propio son 38 puertas, profundidad 13
+(`examples/divisibility_cost.rs`).
 
 `.claude/skills/dz-cli/SKILL.md` es el skill que describe todo esto para un
 agente; sus ejemplos están copiados de corridas reales del binario.

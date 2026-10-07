@@ -19,8 +19,9 @@
 use dz_api::{
     compare_backends, comparison_json_line, error_json_line, execute, functions, gate_count_csv,
     to_ascii, to_json_line, trace_csv, trace_json_line, trace_measured, trace_summary_csv,
-    ApiError, BackendComparison, BackendKind, DisplayAlphabet, GateCount, InputBase, NumberMode,
-    Operation, Request, Response, Trace, TraceKind, TraceRequest,
+    execute_theory, theory_json_line, ApiError, BackendComparison, BackendKind, DisplayAlphabet,
+    GateCount, InputBase, NumberMode, Operation, Quantifier, Request, Response, TheoryOp,
+    TheoryRequest, TheoryResponse, Trace, TraceKind, TraceRequest, DEFAULT_BOUND_VAR,
 };
 use std::io::{self, BufRead, Write};
 
@@ -151,6 +152,8 @@ struct Flags {
     /// Default: twelve, i.e. exactly the old behaviour -- and free, which
     /// base ten is not (`docs/10-entrada-base-10.md`).
     input_base: InputBase,
+    /// Name of the bound variable of `forall`/`exists` (`--var`).
+    var: String,
 }
 
 impl Default for Flags {
@@ -165,6 +168,7 @@ impl Default for Flags {
             csv: None,
             alphabet: DisplayAlphabet::canonical(),
             input_base: InputBase::Twelve,
+            var: DEFAULT_BOUND_VAR.to_string(),
         }
     }
 }
@@ -200,6 +204,11 @@ fn print_usage() {
     println!("Research:");
     println!("  trace add|sub|mul a b       step-by-step circuit run (integers only)");
     println!("  compare <operation> <args>  the same call on all three gate backends");
+    println!("  divrem a b                  quotient and remainder from one division pass");
+    println!("  valuation n p               largest k with p^k dividing n (and the cofactor)");
+    println!("  divisible n d               d | n; by the last digit when d is 2,3,4,6 or 10");
+    println!("  forall|exists <N> \"<body>\"  bounded quantifier over i = 0..N-1 (--var <name>);");
+    println!("                              body holds when nonzero, or 'lhs = rhs' (!=,<,<=,>,>=)");
     println!("  chain <display>             convert a formatted dozenal result back to");
     println!("                              --input-base (the reverse of reading base 10);");
     println!("                              reads --backend and --input-base like any call");
@@ -217,6 +226,7 @@ fn print_usage() {
     println!("  --input-base 10|12          base of the operands you type (default: 12);");
     println!("                              output is always dozenal. Base 10 is read");
     println!("                              with gates, so '--gates' includes its cost");
+    println!("  --var <name>                bound variable of forall/exists (default: i)");
     println!("  --gates                     also print the gate count of the call");
     println!("  --functions                 list the callable functions and constants");
     println!("  --csv[=<path>]              CSV instead of text: the step table of a");
@@ -274,7 +284,7 @@ fn split_arguments(args: &[String]) -> Result<(Vec<String>, Flags), String> {
                 "unicode" => flags.unicode = true,
                 "gates" => flags.gates = true,
                 "help" => return Err(String::new()),
-                "mode" | "backend" | "scale" | "alphabet" | "input-base" => {
+                "mode" | "backend" | "scale" | "alphabet" | "input-base" | "var" => {
                     i += 1;
                     if i >= args.len() {
                         return Err(format!("--{} needs a value", name));
@@ -290,6 +300,7 @@ fn split_arguments(args: &[String]) -> Result<(Vec<String>, Flags), String> {
                                 .ok_or(format!("unknown backend '{}'", value))?
                         }
                         "alphabet" => flags.alphabet = parse_alphabet(&value)?,
+                        "var" => flags.var = value.clone(),
                         "input-base" => {
                             flags.input_base = InputBase::parse(&value)
                                 .ok_or(format!("unknown input base '{}' (use 10 or 12)", value))?
@@ -382,7 +393,7 @@ fn build_operation(positional: &[String]) -> Result<Operation, String> {
         // shadowed by, the research subcommands: the clash is reported
         // instead of being decided by the order of this `match`
         // (`docs/06-fase9-paridad-cli.md`, section 7).
-        "trace" | "compare" => Err(format!(
+        "trace" | "compare" | "divrem" | "forall" | "exists" => Err(format!(
             "'{0}' is a top-level command, not an operation: write \
              'dz-cli {0} ...' (see 'dz-cli --help')",
             name
@@ -427,6 +438,9 @@ enum Command {
     /// `docs/09-encadenado-de-resultado.md`). One-shot only, same as
     /// `trace`/`compare`: there is no session state to chain onto here.
     Chain(String),
+    /// Integer number theory (`dz_api::theory`): `divrem`, `valuation`,
+    /// `divisible`, bounded `forall`/`exists`. One-shot only.
+    Theory(TheoryOp),
 }
 
 fn trace_kind_error(name: &str) -> String {
@@ -484,6 +498,45 @@ fn build_command(positional: &[String]) -> Result<Command, String> {
                 ));
             }
             Ok(Command::Chain(rest[0].clone()))
+        }
+        "divrem" | "valuation" | "divisible" => {
+            let name = positional[0].as_str();
+            let rest = &positional[1..];
+            if rest.len() != 2 {
+                return Err(format!(
+                    "'{}' takes 2 arguments, got {}",
+                    name,
+                    rest.len()
+                ));
+            }
+            let (x, y) = (rest[0].clone(), rest[1].clone());
+            Ok(Command::Theory(match name {
+                "divrem" => TheoryOp::DivRem { a: x, b: y },
+                "valuation" => TheoryOp::Valuation { n: x, p: y },
+                _ => TheoryOp::Divisible { n: x, d: y },
+            }))
+        }
+        "forall" | "exists" => {
+            let rest = &positional[1..];
+            if rest.len() != 2 {
+                return Err(format!(
+                    "'{}' takes <bound> <body>, e.g. '{} 100 \"i*i = 144\"', got {} argument(s)",
+                    positional[0],
+                    positional[0],
+                    rest.len()
+                ));
+            }
+            let quantifier = if positional[0] == "forall" {
+                Quantifier::Forall
+            } else {
+                Quantifier::Exists
+            };
+            Ok(Command::Theory(TheoryOp::Bounded {
+                quantifier,
+                bound: rest[0].clone(),
+                var: DEFAULT_BOUND_VAR.to_string(),
+                body: rest[1].clone(),
+            }))
         }
         _ => Ok(Command::Calc(build_operation(positional)?)),
     }
@@ -766,7 +819,73 @@ fn run_command(args: &[String]) -> i32 {
         Command::Trace { kind, a, b } => run_trace(kind, &a, &b, &flags),
         Command::Compare(op) => run_compare(&op, &flags),
         Command::Chain(display) => run_chain(&display, &flags),
+        Command::Theory(op) => run_theory(op, &flags),
         Command::Calc(op) => run_calc(op, &flags),
+    }
+}
+
+/// The plain-text rendering of a theory response: one `name: value` line
+/// per field, dozenal text through the configured alphabet.
+fn render_theory(response: &TheoryResponse, flags: &Flags) -> String {
+    let mut out = String::new();
+    for field in &response.fields {
+        let value = if field.raw {
+            field.value.clone()
+        } else {
+            shown(&field.value, &flags.alphabet, flags.unicode)
+        };
+        out.push_str(&format!("{}: {}\n", field.name, value));
+    }
+    if flags.gates {
+        let count = &response.gate_count;
+        out.push_str(&format!(
+            "gates: cycle={} min={} max={} lit={} thr={} total={} depth={} recon={}\n",
+            count.cycle,
+            count.min,
+            count.max,
+            count.lit,
+            count.thr,
+            count.total(),
+            response.depth,
+            response.reconstruction_ops
+        ));
+    }
+    out
+}
+
+fn run_theory(op: TheoryOp, flags: &Flags) -> i32 {
+    if flags.csv.is_some() {
+        eprintln!("usage error: '--csv' applies to 'trace' and 'compare', not to number theory");
+        eprintln!("try 'dz-cli --help'");
+        return USAGE_EXIT;
+    }
+    let op = match op {
+        TheoryOp::Bounded { quantifier, bound, body, .. } => {
+            TheoryOp::Bounded { quantifier, bound, var: flags.var.clone(), body }
+        }
+        other => other,
+    };
+    let request = TheoryRequest::new(op)
+        .with_backend(flags.backend)
+        .with_alphabet(flags.alphabet)
+        .with_input_base(flags.input_base);
+    match execute_theory(&request) {
+        Ok(response) => {
+            if flags.json {
+                println!("{}", theory_json_line(&response));
+            } else {
+                print!("{}", render_theory(&response, flags));
+            }
+            0
+        }
+        Err(error) => {
+            if flags.json {
+                println!("{}", error_json_line(&error));
+            } else {
+                eprintln!("error: {}", error);
+            }
+            report_exit_code(&error)
+        }
     }
 }
 

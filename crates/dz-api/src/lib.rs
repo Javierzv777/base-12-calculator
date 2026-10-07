@@ -20,6 +20,12 @@
 //!     is the purity rule applied to a process (or language) boundary.
 
 pub mod research;
+pub mod theory;
+
+pub use theory::{
+    execute_theory, theory_json_line, Field, Quantifier, TheoryOp, TheoryRequest, TheoryResponse,
+    DEFAULT_BOUND_VAR,
+};
 
 pub use research::{
     compare_backends, comparison_json_line, gate_count_csv, trace, trace_csv, trace_json_line,
@@ -322,6 +328,10 @@ pub enum ApiError {
     /// (`docs/10`): a dozenal-only digit typed while the base is ten, most
     /// often.
     InputBase(InputBaseError),
+    /// A number-theory request (`theory`) that is well-formed text but not
+    /// something it can answer: a non-integer operand, `valuation` of zero,
+    /// a bad bound-variable name, an approximate quantifier body.
+    Theory(String),
 }
 
 impl std::fmt::Display for ApiError {
@@ -332,6 +342,7 @@ impl std::fmt::Display for ApiError {
             ApiError::Trace(message) => write!(f, "{}", message),
             ApiError::Alphabet(e) => write!(f, "{}", e),
             ApiError::InputBase(e) => write!(f, "{}", e),
+            ApiError::Theory(message) => write!(f, "{}", message),
         }
     }
 }

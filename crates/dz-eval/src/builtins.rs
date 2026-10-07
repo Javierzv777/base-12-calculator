@@ -9,17 +9,19 @@
 
 use crate::functions::{Arity, Category, DozFunction, FnContext, FnInfo, FnRegistry, FnValue};
 use crate::EvalError;
-use dz_gates::{DozGates, DynGates};
+use dz_gates::{Digit, DozGates, DynGates};
+use dz_int::Dz;
 use dz_num::{DzFixed, DzRational};
 use dz_sci::{constants, elementary, exact, gamma, trig};
 use std::cmp::Ordering;
 
 /// Functions registered here but excluded from the GUI's scientific
 /// keypad (`app/src-tauri::commands::list_functions` filters on
-/// `FnInfo::cli_only`, sourced from this list). `gamma` is the only entry:
-/// it was requested as a research/CLI tool, not a keypad key -- see
-/// `docs/05-funciones-cientificas.md` section on `gamma`.
-const CLI_ONLY_FUNCTIONS: &[&str] = &["gamma"];
+/// `FnInfo::cli_only`, sourced from this list). `gamma` was requested as a
+/// research/CLI tool, not a keypad key (`docs/05-funciones-cientificas.md`);
+/// `valuation` and `divisible` are the number-theory tools of
+/// `Investigations/12-hallazgo-godel-incompletitud.md`, also CLI only.
+const CLI_ONLY_FUNCTIONS: &[&str] = &["gamma", "valuation", "divisible"];
 
 type FixedImpl = fn(&dyn DozGates, &[DzFixed], &FnContext) -> Result<FnValue<DzFixed>, EvalError>;
 type RationalImpl =
@@ -269,6 +271,81 @@ fn fixed_gamma(g: &dyn DozGates, a: &[DzFixed], ctx: &FnContext) -> Result<FnVal
     Ok(FnValue::approximate(gamma::gamma(&DynGates(g), &a[0], ctx.scale)?))
 }
 
+// ------------------------------------------------------------ number theory
+
+/// The integer an argument denotes, or a domain error. Fixed point: scale 0
+/// (the evaluator keeps integers trimmed). Rational: reduced denominator one.
+fn integer_of_fixed(v: &DzFixed, what: &str) -> Result<Dz, EvalError> {
+    if v.scale == 0 {
+        Ok(v.magnitude.clone())
+    } else {
+        Err(EvalError::Domain(format!("{} must be an integer", what)))
+    }
+}
+fn integer_of_rational(v: &DzRational, what: &str) -> Result<Dz, EvalError> {
+    if v.den_digits() == [Digit::ONE] {
+        Ok(v.num.clone())
+    } else {
+        Err(EvalError::Domain(format!("{} must be an integer", what)))
+    }
+}
+
+fn valuation_dz(g: &dyn DozGates, n: &Dz, p: &Dz) -> Result<Dz, EvalError> {
+    dz_int::valuation(&DynGates(g), n, p)
+        .map(|v| v.exponent)
+        .map_err(|e| EvalError::Domain(e.to_string()))
+}
+
+/// `1` if `d` divides `n`, else `0` (last digit when `d` divides twelve,
+/// restoring division otherwise).
+fn flag_dz(g: &dyn DozGates, n: &Dz, d: &Dz) -> Result<Dz, EvalError> {
+    let answer =
+        dz_int::divisible(&DynGates(g), n, d).map_err(|e| EvalError::Domain(e.to_string()))?;
+    Ok(if answer.divisible {
+        Dz::from_magnitude(false, vec![Digit::ONE])
+    } else {
+        Dz::zero()
+    })
+}
+
+fn fixed_valuation(
+    g: &dyn DozGates,
+    a: &[DzFixed],
+    _c: &FnContext,
+) -> Result<FnValue<DzFixed>, EvalError> {
+    let n = integer_of_fixed(&a[0], "the number")?;
+    let p = integer_of_fixed(&a[1], "the divisor")?;
+    Ok(FnValue::exact(DzFixed::from_int(valuation_dz(g, &n, &p)?)))
+}
+fn rational_valuation(
+    g: &dyn DozGates,
+    a: &[DzRational],
+    _c: &FnContext,
+) -> Result<FnValue<DzRational>, EvalError> {
+    let n = integer_of_rational(&a[0], "the number")?;
+    let p = integer_of_rational(&a[1], "the divisor")?;
+    Ok(FnValue::exact(DzRational::from_int(valuation_dz(g, &n, &p)?)))
+}
+
+fn fixed_divisible(
+    g: &dyn DozGates,
+    a: &[DzFixed],
+    _c: &FnContext,
+) -> Result<FnValue<DzFixed>, EvalError> {
+    let n = integer_of_fixed(&a[0], "the number")?;
+    let d = integer_of_fixed(&a[1], "the divisor")?;
+    Ok(FnValue::exact(DzFixed::from_int(flag_dz(g, &n, &d)?)))
+}
+fn rational_divisible(
+    g: &dyn DozGates,
+    a: &[DzRational],
+    _c: &FnContext,
+) -> Result<FnValue<DzRational>, EvalError> {
+    let n = integer_of_rational(&a[0], "the number")?;
+    let d = integer_of_rational(&a[1], "the divisor")?;
+    Ok(FnValue::exact(DzRational::from_int(flag_dz(g, &n, &d)?)))
+}
+
 // ------------------------------------------------------------- trigonometry
 
 fn fixed_sin(g: &dyn DozGates, a: &[DzFixed], ctx: &FnContext) -> Result<FnValue<DzFixed>, EvalError> {
@@ -499,6 +576,24 @@ pub fn register_all(registry: &mut FnRegistry) {
             always_exact: false,
             fixed: fixed_gamma,
             rational: None,
+        },
+        SimpleFn {
+            name: "valuation",
+            arity: Arity::exact(2),
+            category: Category::Special,
+            description: "exact p-adic valuation: largest k with p^k dividing n; CLI only",
+            always_exact: true,
+            fixed: fixed_valuation,
+            rational: Some(rational_valuation),
+        },
+        SimpleFn {
+            name: "divisible",
+            arity: Arity::exact(2),
+            category: Category::Special,
+            description: "1 if d divides n, else 0 (last digit when d divides twelve); CLI only",
+            always_exact: true,
+            fixed: fixed_divisible,
+            rational: Some(rational_divisible),
         },
     ];
     for entry in entries {

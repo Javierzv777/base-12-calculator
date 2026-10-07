@@ -2,6 +2,7 @@ pub mod adder;
 pub mod comparator;
 pub mod complement;
 pub mod depth;
+pub mod divisibility;
 pub mod multiplier;
 pub mod parity;
 pub mod trace;
@@ -25,3 +26,6 @@ pub use multiplier::{
 };
 pub use parity::{is_even_digit, is_even_digit_net};
 pub use trace::{multiply_trace, ripple_add_trace, MulTrace, PartialRow, StepRecord};
+pub use divisibility::{
+    divisor_row, last_digit_divisible, last_digit_divisible_net, SMALL_DIVISOR_TAGS,
+};
