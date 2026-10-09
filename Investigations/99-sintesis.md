@@ -5,15 +5,16 @@ hipótesis de `planteamientos.md`. Cuatro líneas (A constantes, B lugares,
 C análisis, D dozenal) corrieron en paralelo contra el mismo protocolo, con el
 calculador de puertas de este repositorio como instrumento. Los informes
 completos están en `01-hallazgos-{A,B,C,D}-*.md`; las cifras compartidas y las
-trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `12`
+trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `13`
 son extensiones posteriores al cierre, abiertas por preguntas del usuario sobre
 hallazgos concretos; cada una está resumida en §4.5, §4.6, §4.7, §4.8, §4.9,
-§4.10, §4.11 y §4.12.
+§4.10, §4.11, §4.12 y §4.13.
 
-Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-10-07 (`12`,
-Gödel, abierta por un vídeo divulgativo y fuera de la lista de "ingredientes"
-de `09`-`11`, que sigue siendo la abierta por la afirmación de Kryon sobre π —
-ver §4.9-§4.11 para ese contexto y §4.12 para ésta).
+Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-10-09 (`13`,
+hipótesis de Riemann con la base 12 como enfoque; antes, `12`, Gödel, abierta
+por un vídeo divulgativo). Ninguna de las dos pertenece a la lista de
+"ingredientes" de `09`-`11`, que sigue siendo la abierta por la afirmación de
+Kryon sobre π: ver §4.9-§4.11 para ese contexto y §4.12-§4.13 para éstas.
 Revisión crítica aplicada: 2026-09-13 (ver §8).
 
 ---
@@ -891,6 +892,51 @@ en el punto registrado y se retiró al re-medir con `valuation` (`12` §10.2); l
 Lo que no se hizo: no se implementó `Prf`, ni lema diagonal, ni Rosser, ni Gentzen,
 ni una máquina decimal; una sola cadena y solo backend MVL. Ver §7-§8 de `12`. Las
 afirmaciones laterales del vídeo no se verificaron.
+
+### 4.13 ¿Qué aporta la base 12 a la hipótesis de Riemann? Un teorema en el lado trivial, nada en los ceros
+
+Quinta extensión posterior al cierre (`13-hallazgo-riemann-base12.md`), abierta
+por una pregunta directa del usuario (2026-10-09). **La HR no se resuelve** y no
+se intentó. Es un enunciado sobre los ceros de ζ y no depende de cómo se
+escriban los números, así que la pregunta "¿la base 12 ayuda a probarla?" es
+**(IV)**. Predicciones `PR1`-`PR7` registradas antes de medir, salvo `PR2`, que
+quedó contaminada y se marca. Se cumplen todas menos `PR7`, que falla en uno de
+cinco ceros.
+
+- **El único resultado de base 12 es aritmético y está en el lado trivial
+  (III).** `ζ(1−2k)` **nunca** tiene desarrollo decimal finito, porque von
+  Staudt–Clausen pone siempre 2·3 en el denominador. En base 12 termina si y solo
+  si ningún primo `p ≥ 5` cumple `(p−1) ∣ 2k`, y entonces el denominador es
+  **exactamente 12**: `ζ(−1) = ζ(−13) = −0;1`, `ζ(−25) = −2788↋;7`, y hay
+  infinitos así (Dirichlet). Los Bernoulli se calcularon por puertas hasta
+  `B₅₂` (27.673 M de puertas) y coinciden 26 de 26 con un oráculo `BigInt`. El
+  criterio se contrastó hasta 2k = 400. Base 12 es la **menor** base con una
+  sola cifra fraccionaria, no la única. `ζ(−1) = −1/12` de `01-D` F7 resulta ser
+  el primer miembro de una familia infinita, no una coincidencia aislada.
+- **Los ceros (IV).** La función Z de Hardy (Riemann–Siegel truncado en `C₀`,
+  todo real) localizó los cinco primeros ceros en la recta crítica, con errores
+  de 2,3·10⁻³ a 7,5·10⁻³ y ≈ 3·10¹⁰ puertas por cero. Es una localización, no
+  una verificación: no hay cota de error ni recuento `N(T)`. `1/2 = 0;6` no gana
+  nada.
+- **Formas aritméticas equivalentes, comprobadas en finito.** Mertens:
+  `|M(n)| < √n` en `2 ≤ n ≤ 1728`, exacto, y `M(1728) = −7`; 0 discrepancias
+  con el oráculo en 1.727 filas. Robin: se cumple en 12 números colosalmente
+  abundantes desde 55440 con margen `0;04`-`0;09`, y falla en 2520 y 5040. La
+  HR es Π₁: el instrumento podría **refutarla** en un punto, pero nunca
+  demostrarla (`12` §2.3).
+- **Lo de base 12 que sí se mide es (III) y compartido.** La clase mod 12 de un
+  primo es su última cifra, que se lee con 0 puertas frente a 148.140 de
+  `divrem`. La última cifra decide `μ = 0` en el 64 % de los casos con cuadrado,
+  y en base 10 en ninguno. Los ceros finales de los colosalmente abundantes los
+  iguala o supera la base 6. El sesgo de Chebyshev mod 12 (la clase 1 nunca va
+  por delante hasta 1728) es de los caracteres mod 12, no de la base.
+
+Efecto sobre el instrumento: la primalidad sin cota √n exacta costaba 819 M de
+puertas por primo. Después se añadió `isqrt` (Newton entero sobre `Dz`, solo
+CLI), y la misma comprobación baja a 14,2 M. Lo que no se hizo: verificación
+rigurosa de ceros, nada fuera de la recta (no hay complejos), Lagarias,
+Nyman–Beurling, Li, densidades de Rubinstein–Sarnak, literatura para el
+corolario de §3.2. Ver §8-§9 de `13`.
 
 ---
 
