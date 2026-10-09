@@ -173,3 +173,67 @@ proptest! {
         prop_assert_eq!(r.divisible, n % d == 0);
     }
 }
+
+// ------------------------------------------------------------------ isqrt
+
+fn big_from_dz(d: &Dz) -> num_bigint::BigUint {
+    let mut acc = num_bigint::BigUint::from(0u32);
+    for &digit in d.magnitude_digits().iter().rev() {
+        acc = acc * 12u32 + digit.tag() as u32;
+    }
+    acc
+}
+
+fn dz_from_big(v: &num_bigint::BigUint) -> Dz {
+    let twelve = num_bigint::BigUint::from(12u32);
+    let zero = num_bigint::BigUint::from(0u32);
+    let mut v = v.clone();
+    let mut out = Vec::new();
+    if v == zero {
+        out.push(Digit::ZERO);
+    }
+    while v > zero {
+        let r: u32 = (&v % &twelve).try_into().unwrap();
+        out.push(Digit::new(r as u8).unwrap());
+        v /= &twelve;
+    }
+    Dz::from_magnitude(false, out)
+}
+
+fn check_isqrt(g: &MvlGates, n: &num_bigint::BigUint) {
+    let got = dz_int::isqrt(g, &dz_from_big(n)).unwrap();
+    assert_eq!(big_from_dz(&got), n.sqrt(), "isqrt of {}", n);
+}
+
+#[test]
+fn isqrt_matches_the_oracle_over_a_range() {
+    let g = MvlGates::new();
+    for n in 0u32..=2000 {
+        check_isqrt(&g, &num_bigint::BigUint::from(n));
+    }
+}
+
+#[test]
+fn isqrt_squares_and_neighbours_and_large_values() {
+    let g = MvlGates::new();
+    for r in [3u64, 11, 12, 13, 143, 144, 145, 1727, 1728, 99991, 1_000_003, 4_294_967_295] {
+        let sq = num_bigint::BigUint::from(r) * num_bigint::BigUint::from(r);
+        check_isqrt(&g, &sq);
+        check_isqrt(&g, &(&sq + 1u32));
+        check_isqrt(&g, &(&sq - 1u32));
+    }
+    check_isqrt(&g, &(num_bigint::BigUint::from(10u32).pow(40) + 12345u32));
+    let p = num_bigint::BigUint::from(7u32).pow(30);
+    check_isqrt(&g, &(&p * &p));
+}
+
+#[test]
+fn isqrt_rejects_negatives_and_measures_depth() {
+    let g = MvlGates::new();
+    assert!(dz_int::isqrt(&g, &dz(-4)).is_err());
+    assert!(dz_int::isqrt(&g, &dz(0)).unwrap().is_zero());
+    let _scope = DepthScope::enter();
+    let r = dz_int::isqrt(&g, &dz(1000)).unwrap();
+    assert_eq!(native(&r), 31);
+    assert!(r.level() > 0);
+}

@@ -590,6 +590,30 @@ $ dz-cli exists 5 "sin(i)=0"
 error: the body is approximate (a truncated series); a quantifier needs an exact decision
 ```
 
+For a primality check use the exact bound `isqrt` (CLI-only, exact; the
+approximate `sqrt` cannot bound a quantifier). `isqrt(x)` is the largest `r`
+with `r*r <= floor(x)`; a negative argument is an error:
+
+```
+$ dz-cli eval "isqrt(EE7)" --gates
+35
+gates: cycle=109824 min=176540 max=131483 lit=90696 thr=22560 total=531103 depth=558 recon=0
+
+$ dz-cli exists "isqrt(EE7)-1" "EE7 % (i+2) = 0" --gates
+quantifier: exists
+holds: false
+checked: 34
+gates: cycle=2900700 min=4767438 max=3543848 lit=2436276 thr=600672 total=14248934 depth=2372 recon=0
+
+$ dz-cli exists "EE7-2" "EE7 % (i+2) = 0" --gates     # naive bound
+holds: false
+checked: EE5
+gates: ... total=819675170 depth=4250 recon=0
+```
+
+The exact root cuts the search from `EE5` candidates to `34` (about 57x fewer
+gates). `isqrt(-4)` gives `error: argument outside domain: integer square root of a negative number`.
+
 It is bounded, so always decidable; there is no unbounded form on purpose.
 `--gates` is the aggregate over all candidates that ran, and `depth` is that
 of the deepest *single* candidate. Quote the body: it contains `*`, `<`, `>`.

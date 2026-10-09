@@ -71,6 +71,17 @@ fn json_output_and_error_paths() {
 }
 
 #[test]
+fn isqrt_bounds_a_primality_check_exactly() {
+    // EE7 has no divisor in 2..=isqrt(EE7).
+    let prime = run(&["exists", "isqrt(EE7)-1", "EE7 % (i+2) = 0"]);
+    assert!(prime.status.success());
+    assert!(stdout(&prime).contains("holds: false"), "{}", stdout(&prime));
+    // 100 (dozenal, = 144) is composite: 2 divides it.
+    let composite = run(&["exists", "isqrt(100)-1", "100 % (i+2) = 0"]);
+    assert!(stdout(&composite).contains("holds: true"), "{}", stdout(&composite));
+}
+
+#[test]
 fn the_quantifier_names_are_reserved_commands_not_operations() {
     let output = run(&["compare", "forall", "3", "i"]);
     assert_eq!(output.status.code(), Some(2));

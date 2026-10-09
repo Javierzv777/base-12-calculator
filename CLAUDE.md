@@ -32,7 +32,7 @@ Antes de dar por bueno un cambio: `pwsh tools/lint-purity.ps1`.
 export PATH="$PATH:$HOME/.cargo/bin"            # bash
 $env:PATH += ";$env:USERPROFILE\.cargo\bin"     # powershell
 
-cargo test --workspace              # 269 tests, ~3,5 min en debug
+cargo test --workspace              # 274 tests, ~3,5 min en debug
 cargo test --workspace --release    # mucho más rápido (~segundos)
 cargo clippy --workspace --all-targets
 cargo run -p dz-cli                 # REPL
@@ -159,6 +159,18 @@ nulo; el exponente es un `Dz` contado con `add`; `n = 0` y `p < 2` son error) y
 circuito del último dígito de `dz-gates`, genérico sobre `GateNet`, así que mide
 profundidad; para cualquier otro `d` **cae a `div_rem`** y lo dice en
 `method`). Investigación: `Investigations/12-hallazgo-godel-incompletitud.md`.
+
+También `isqrt(g, n)`: raíz cuadrada entera **exacta** (el mayor `r` con
+`r*r <= n`; `n` negativo es error). Newton entero desde arriba, gemelo entero de
+`dz_sci::elementary::sqrt` (misma semilla `12^⌈len/2⌉`, que es longitud de
+`Vec`, y misma regla de parada «la primera vez que deja de decrecer»):
+`x' = (x + n div x) div 2` con `div_rem` y `compare`. Se eligió sobre la raíz
+dígito a dígito por reutilizar esa estructura y no necesitar `mul` ni búsqueda
+de prueba entre doce dígitos por par. Está compuesta solo de operaciones `Dz`
+(que llevan su nivel), así que **mide profundidad sin código extra**, igual que
+`valuation`. Motivo: `exists`/`forall` necesitan una cota exacta, y
+`floor(sqrt(n))` es aproximado; con `isqrt`, probar primalidad de `EE7` baja de
+819.675.170 a 14.248.934 puertas (`exists "isqrt(EE7)-1" "EE7 % (i+2) = 0"`).
 
 Consecuencia para quien añada una operación nueva a `dz-int`: si la escribe con
 el patrón `*_net` genérico, la profundidad viene gratis. Si la escribe con
@@ -377,8 +389,10 @@ Cuatro subcomandos de teoría de números (`dz-cli divrem a b`, `valuation n p`,
 primer nivel como `trace`/`compare`, van por `dz-api::theory`, imprimen
 `campo: valor` (o `--json`) y aceptan `--gates`, `--backend`, `--input-base`.
 `divrem`, `forall` y `exists` están reservados en `build_operation`. Son **solo
-CLI**: `valuation(n,p)` y `divisible(n,d)` también existen como funciones de
-expresión, pero están en `CLI_ONLY_FUNCTIONS` (mismo mecanismo que `gamma`), así
+CLI**: `valuation(n,p)`, `divisible(n,d)` e `isqrt(x)` (exacta; `isqrt(x) =
+isqrt(floor(x))` usando `dz_sci::exact::floor_*`; negativo es error de dominio;
+`isqrt(EE7)` marca 531.103 puertas, profundidad 558, en modo fijo 953.900)
+también existen como funciones de expresión, pero están en `CLI_ONLY_FUNCTIONS` (mismo mecanismo que `gamma`), así
 que no aparecen en el teclado de la GUI; `app/` no se tocó. Un
 `divisible 8820 4` marca 55.365 puertas y profundidad 254, pero eso es casi todo
 **lectura de operandos**: el circuito propio son 38 puertas, profundidad 13

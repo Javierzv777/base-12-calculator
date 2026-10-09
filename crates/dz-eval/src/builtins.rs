@@ -21,7 +21,7 @@ use std::cmp::Ordering;
 /// research/CLI tool, not a keypad key (`docs/05-funciones-cientificas.md`);
 /// `valuation` and `divisible` are the number-theory tools of
 /// `Investigations/12-hallazgo-godel-incompletitud.md`, also CLI only.
-const CLI_ONLY_FUNCTIONS: &[&str] = &["gamma", "valuation", "divisible"];
+const CLI_ONLY_FUNCTIONS: &[&str] = &["gamma", "valuation", "divisible", "isqrt"];
 
 type FixedImpl = fn(&dyn DozGates, &[DzFixed], &FnContext) -> Result<FnValue<DzFixed>, EvalError>;
 type RationalImpl =
@@ -346,6 +346,29 @@ fn rational_divisible(
     Ok(FnValue::exact(DzRational::from_int(flag_dz(g, &n, &d)?)))
 }
 
+/// `isqrt(x) = isqrt(floor(x))` (exact: `k*k <= x` iff `k*k <= floor(x)` for
+/// integer `k`). `floor` is `dz_sci::exact`'s, in both representations.
+fn isqrt_of(g: &dyn DozGates, floored: Dz) -> Result<Dz, EvalError> {
+    dz_int::isqrt(&DynGates(g), &floored).map_err(|e| EvalError::Domain(e.to_string()))
+}
+
+fn fixed_isqrt(
+    g: &dyn DozGates,
+    a: &[DzFixed],
+    _c: &FnContext,
+) -> Result<FnValue<DzFixed>, EvalError> {
+    let floored = integer_of_fixed(&exact::floor_fixed(&DynGates(g), &a[0]), "the floor")?;
+    Ok(FnValue::exact(DzFixed::from_int(isqrt_of(g, floored)?)))
+}
+fn rational_isqrt(
+    g: &dyn DozGates,
+    a: &[DzRational],
+    _c: &FnContext,
+) -> Result<FnValue<DzRational>, EvalError> {
+    let floored = integer_of_rational(&exact::floor_rational(&DynGates(g), &a[0]), "the floor")?;
+    Ok(FnValue::exact(DzRational::from_int(isqrt_of(g, floored)?)))
+}
+
 // ------------------------------------------------------------- trigonometry
 
 fn fixed_sin(g: &dyn DozGates, a: &[DzFixed], ctx: &FnContext) -> Result<FnValue<DzFixed>, EvalError> {
@@ -594,6 +617,15 @@ pub fn register_all(registry: &mut FnRegistry) {
             always_exact: true,
             fixed: fixed_divisible,
             rational: Some(rational_divisible),
+        },
+        SimpleFn {
+            name: "isqrt",
+            arity: Arity::exact(1),
+            category: Category::Special,
+            description: "exact integer square root: largest r with r*r <= floor(x); CLI only",
+            always_exact: true,
+            fixed: fixed_isqrt,
+            rational: Some(rational_isqrt),
         },
     ];
     for entry in entries {

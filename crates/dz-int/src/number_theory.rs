@@ -180,3 +180,65 @@ pub fn divisible<G: DozGates>(g: &G, n: &Dz, d: &Dz) -> Result<Divisibility, Zer
     let (_, remainder) = n.div_rem(g, d).expect("d is not zero");
     Ok(Divisibility { divisible: remainder.is_zero(), method: DivisibilityMethod::DivRem })
 }
+
+/// `isqrt` of a negative number has no answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NegativeRoot;
+
+impl fmt::Display for NegativeRoot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "integer square root of a negative number")
+    }
+}
+impl std::error::Error for NegativeRoot {}
+
+/// `12^ceil(len/2)`: a `1` over `ceil(len/2)` zeros. `n < 12^len`, so
+/// `sqrt(n) < 12^(len/2) <= 12^ceil(len/2)`: an upper bound on the root,
+/// which is what Newton needs to descend monotonically. Building it is
+/// `Vec`-length bookkeeping (the same seed `dz_sci::elementary::sqrt` uses,
+/// there as `DzFixed::pow12`).
+fn newton_seed(len: usize) -> Dz {
+    let mut halves = 0usize;
+    let mut i = 0usize;
+    while i < len {
+        halves += 1;
+        i += 2;
+    }
+    let mut digits = vec![Digit::ZERO; halves];
+    digits.push(Digit::ONE);
+    Dz::from_magnitude(false, digits)
+}
+
+/// The exact integer square root: the largest `r` with `r*r <= n`.
+///
+/// Integer Newton from above, the integer twin of `dz_sci::elementary::sqrt`
+/// (same seed, same "stop the first time the sequence stops decreasing"
+/// rule): `x' = (x + n div x) div 2`, with `div_rem` for both divisions and
+/// `compare` for the stop. Chosen over the long-hand digit-by-digit root
+/// because it reuses the calculator's own `sqrt` structure and needs only
+/// `add`/`div_rem`/`compare`; the digit-by-digit method needs a `mul` and a
+/// trial search over twelve digits per pair. Starting from an upper bound,
+/// integer Newton is monotone decreasing and its fixed point is exactly
+/// `floor(sqrt(n))`.
+///
+/// Built only from `Dz` operations, which carry their circuit level, so
+/// inside a `DepthScope` the depth is measured with no extra code. Zero is
+/// its own root; a negative `n` is an error.
+pub fn isqrt<G: DozGates>(g: &G, n: &Dz) -> Result<Dz, NegativeRoot> {
+    if n.sign() == Sign::Neg {
+        return Err(NegativeRoot);
+    }
+    if n.is_zero() {
+        return Ok(Dz::zero());
+    }
+    let two = two();
+    let mut x = newton_seed(n.magnitude_digits().len());
+    loop {
+        let (quotient, _) = n.div_rem(g, &x).expect("x is at least one");
+        let (next, _) = x.add(g, &quotient).div_rem(g, &two).expect("two is not zero");
+        if next.compare(g, &x) != Ordering::Less {
+            return Ok(x);
+        }
+        x = next;
+    }
+}

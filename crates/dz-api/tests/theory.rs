@@ -245,3 +245,17 @@ fn the_functions_are_registered_and_stay_off_the_gui_keypad() {
     let bad = execute(&Request::new(Operation::Eval { expr: "valuation(0, 2)".into() }));
     assert!(bad.is_err());
 }
+
+#[test]
+fn isqrt_is_exact_cli_only_and_floors_its_argument() {
+    let info = functions().into_iter().find(|f| f.name == "isqrt").expect("isqrt");
+    assert!(info.cli_only);
+    let eval = |expr: &str| execute(&Request::new(Operation::Eval { expr: expr.into() }));
+    assert_eq!(eval("isqrt(100)").unwrap().display, "10");
+    assert_eq!(eval("isqrt(2;6)").unwrap().display, "1");
+    // 1000 dozenal = 1728; floor(sqrt(1728)) = 41 = 35 dozenal.
+    assert_eq!(eval("isqrt(1000)").unwrap().display, "35");
+    assert!(eval("isqrt(-4)").is_err());
+    assert!(eval("isqrt(-0;6)").is_err());
+    assert!(!eval("isqrt(2)").unwrap().approximate, "isqrt must be reported exact");
+}

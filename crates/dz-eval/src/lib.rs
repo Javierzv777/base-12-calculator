@@ -397,12 +397,12 @@ mod tests {
 
         let others_flagged: Vec<&str> = catalog
             .iter()
-            .filter(|f| !["gamma", "valuation", "divisible"].contains(&f.name) && f.cli_only)
+            .filter(|f| !["gamma", "valuation", "divisible", "isqrt"].contains(&f.name) && f.cli_only)
             .map(|f| f.name)
             .collect();
         assert!(
             others_flagged.is_empty(),
-            "only gamma, valuation and divisible should be cli_only, also flagged: {:?}",
+            "only gamma, valuation, divisible and isqrt should be cli_only, also flagged: {:?}",
             others_flagged
         );
 

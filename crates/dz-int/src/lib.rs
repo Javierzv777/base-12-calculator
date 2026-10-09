@@ -19,7 +19,7 @@ pub use dzint::{
     Dz, NoSubTrace, Sign, SubTraceSink,
 };
 pub use number_theory::{
-    divisible, last_digit_divisible, valuation, Divisibility, DivisibilityMethod, Valuation,
-    ValuationError, ZeroDivisor,
+    divisible, isqrt, last_digit_divisible, valuation, Divisibility, DivisibilityMethod,
+    NegativeRoot, Valuation, ValuationError, ZeroDivisor,
 };
 pub use trace::{subtract_trace, SubTrace};
