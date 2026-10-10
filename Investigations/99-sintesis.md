@@ -919,8 +919,8 @@ cinco ceros.
   una verificación: no hay cota de error ni recuento `N(T)`. `1/2 = 0;6` no gana
   nada.
 - **Formas aritméticas equivalentes, comprobadas en finito.** Mertens:
-  `|M(n)| < √n` en `2 ≤ n ≤ 1728`, exacto, y `M(1728) = −7`; 0 discrepancias
-  con el oráculo en 1.727 filas. Robin: se cumple en 12 números colosalmente
+  `|M(n)| < √n` en `2 ≤ n ≤ 10000`, exacto, y `M(10000) = −23`; 0 discrepancias
+  con el oráculo en 9.999 filas (hasta 1728 sin `isqrt`, hasta 10000 con ella). Robin: se cumple en 12 números colosalmente
   abundantes desde 55440 con margen `0;04`-`0;09`, y falla en 2520 y 5040. La
   HR es Π₁: el instrumento podría **refutarla** en un punto, pero nunca
   demostrarla (`12` §2.3).
@@ -929,7 +929,7 @@ cinco ceros.
   `divrem`. La última cifra decide `μ = 0` en el 64 % de los casos con cuadrado,
   y en base 10 en ninguno. Los ceros finales de los colosalmente abundantes los
   iguala o supera la base 6. El sesgo de Chebyshev mod 12 (la clase 1 nunca va
-  por delante hasta 1728) es de los caracteres mod 12, no de la base.
+  por delante hasta 10000: 300 primos frente a 309, 311 y 307) es de los caracteres mod 12, no de la base.
 
 Efecto sobre el instrumento: la primalidad sin cota √n exacta costaba 819 M de
 puertas por primo. Después se añadió `isqrt` (Newton entero sobre `Dz`, solo

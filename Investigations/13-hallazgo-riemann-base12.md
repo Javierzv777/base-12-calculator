@@ -40,7 +40,7 @@ sentido que en `11` y `12`.
 | ¿Qué le aporta la base 12 a los valores de ζ? | **Un teorema limpio, en el lado trivial.** `ζ(1−2k)` **nunca** termina en base 10, y en base 12 termina exactamente cuando ningún primo `p ≥ 5` cumple `(p−1) ∣ 2k`; en ese caso el denominador es **exactamente 12**: una sola cifra dozenal fraccionaria. Ocurre infinitas veces (2k = 2, 14, 26, 34, 38, 62, …). Medido con Bernoulli calculados por puertas hasta 2k = 52. | (III), con raíz aritmética (von Staudt–Clausen + Adams) |
 | ¿Y a los ceros? | **Nada.** Se localizaron los cinco primeros ceros en la recta crítica con la función Z de Hardy (Riemann–Siegel truncado en `C₀`), todo por puertas: error de 2,3·10⁻³ a 7,5·10⁻³ frente a la referencia, ≈ 3·10¹⁰ puertas por cero. Es una localización, no una verificación. `Re(s) = 1/2` es `0;6`, tan corto como `0.5`. | (IV) |
 | Primos por clase mod 12 (sesgo de Chebyshev, HR generalizada) | La clase de un primo es su **última cifra dozenal**: leerla cuesta 0 puertas frente a 148.140 de `divrem n 10`. El sesgo (la clase 1 va detrás) es aritmética de los caracteres mod 12, no de la base. | (III) la lectura; (IV) el sesgo |
-| Función de Möbius y Mertens | En base 12 la **última cifra** decide `μ(n) = 0` en el 64 % de los casos con cuadrado (por `4 ∣ n`); en base 10 la última cifra no decide ninguno. `M(n)² < n` se cumple, exacto, en las 1.727 filas `2 ≤ n ≤ 1000₁₂`; `M(1000₁₂) = −7`, contrastado fila a fila con un oráculo (0 discrepancias). | (III), compartida con toda base múltiplo de 4 |
+| Función de Möbius y Mertens | En base 12 la **última cifra** decide `μ(n) = 0` en el 64 % de los casos con cuadrado (por `4 ∣ n`); en base 10 la última cifra no decide ninguno. `M(n)² < n` se cumple, exacto, en las 9.999 filas `2 ≤ n ≤ 5954₁₂ = 10000`; `M(10000) = −1E₁₂ = −23`, contrastado fila a fila con un oráculo (0 discrepancias). Primalidad con `isqrt` (§5.4). | (III), compartida con toda base múltiplo de 4 |
 | Criterio de Robin | Comprobado (aproximado, con margen ≫ error) en los 12 números colosalmente abundantes de `55440` a `2021649740510400`; falla en 2520 y 5040, como debe. Sus ceros finales en base 12 los supera la base 6. | (IV) la desigualdad; (III) los ceros finales |
 | ¿Puede el instrumento probar la HR? | No. La HR es un enunciado Π₁: un contraejemplo sería un cálculo finito, una prueba no. `forall` es acotado (`12` §10). El instrumento puede, en principio, **refutar**; nunca demostrar. | (IV) |
 
@@ -355,6 +355,61 @@ descarta: un `n` libre de cuadrados sigue necesitando factorización completa, y
 **ahí está todo el coste**. Un primo cerca de 1728 cuesta 819.675.170 puertas de
 `exists` (§8.3), y el filtro de la última cifra ahorra 66 mil.
 
+### 5.4 Extensión hasta 10000, con `isqrt` (2026-10-10)
+
+Tras integrar `isqrt` (ver Correcciones) se rehízo §4–§5 hasta `n = 10000 =
+5954₁₂`. Hay dos cambios en el guion; el formato de fila es el mismo, más una
+columna `prime_gates`:
+
+- **Primalidad con cota exacta:** `exists "isqrt(<n>)-1" "<n> % (i+2) = 0"`.
+- **Factorización por testigo** (`mertens-witness.sh`): cuando `exists` se
+  cumple, su `witness` `i` da el **menor** divisor `i+2`, que por tanto es
+  primo. `μ` va pelando factores con `valuation` sobre ese divisor, en vez de
+  recorrer la lista de primos. Las filas 2–2424 se hicieron con
+  `mertens-isqrt.sh` (barrido de primos) y el resto con `mertens-witness.sh`.
+  El resultado no depende de cuál se usó, y el contraste lo confirma.
+
+La corrida se cortó dos veces (límite de 2 h de la tarea y una suspensión del
+equipo) y se **reanudó** desde la última fila; los guiones releen primos y `M`
+del fichero. Salida: `mertens-isqrt-10000.out`, 9.999 filas.
+
+```
+$ tail -1 Investigations/13-riemann/mertens-isqrt-10000.out
+n=5954 kind=comp mu=0 M=-1E last=4 mertens_ok=1 prime_gates=879347
+$ node Investigations/13-riemann/compare-mertens.mjs Investigations/13-riemann/mertens-isqrt-10000.out 10000
+{ rows: 9999, mismatches: 0, ... }
+```
+
+| | hasta 1728 (§4–§5) | hasta 10000 |
+|---|--:|--:|
+| filas contrastadas con el oráculo, discrepancias | 1.727, 0 | 9.999, **0** |
+| `M` al final | `−7` | `−1E₁₂ = −23` |
+| máximo de `|M|` | 16 (`n = E45₁₂`) | 43 (`M = −37₁₂`, en `n = 5859₁₂ = 9861`) |
+| máximo de `M²/n` | 0,8 en `n = 5` | 0,8 en `n = 5`; nunca vuelve a acercarse |
+| primos `> 3` por clase 1 / 5 / 7 / ↋ | 61 / 69 / 69 / 68 | **300 / 309 / 311 / 307** |
+| `n` donde la clase 1 va por delante | 0 | **0** (empates 4 / 20 / 26, todos antes de 1728) |
+| `μ = 0` decidido por la última cifra dozenal | 432 de 677 (64 %) | 2.500 de 3.917 (**63,8 %**) |
+| … por las dos últimas, base 12 / base 10 | 85 % / 71 % | **85,1 % / 71,5 %** (base 10, oráculo) |
+
+- **Mertens se sostiene.** `n − M(n)² > 0` en las 9.999 filas. `M(10000) =
+  −23` coincide con el valor publicado (citado, no verificado aquí más allá del
+  oráculo). La desigualdad sigue siendo falsa en general (§5.1); a esta escala
+  no se acerca a romperse.
+- **El sesgo mod 12 se mantiene.** De 1728 a 10000 no aparece ningún empate
+  nuevo: la clase 1 va estrictamente por detrás de las otras tres. Esto sigue
+  siendo aritmética de los caracteres mod 12 (IV), no de la base.
+- **Las proporciones del filtro de la última cifra se estabilizan** en 64 %
+  (`4 ∣ n` entre los no libres de cuadrados), que es lo esperado:
+  `(1/4)/(1 − 6/π²) ≈ 0,64`. En base 10, con la última cifra, sigue siendo 0.
+
+**Coste.** Las 1.229 comprobaciones de primalidad de los primos `≤ 10000` suman
+29.006.724.578 puertas, con un máximo de 42.916.385 por primo. Las 269 de los
+primos `≤ 1728` suman 1.989.131.331, una media de ~7,4 M por primo, cuando sin
+`isqrt` un **solo** primo cerca de 1728 costaba 819.675.170. A 10000 sin
+`isqrt`, la primalidad de los mayores rondaría los 5·10⁹ puertas por primo
+(estimación lineal en candidatos, no medida). Esta es la diferencia entre una
+corrida de horas y una de días.
+
 ---
 
 ## 6. Criterio de Robin en los números colosalmente abundantes
@@ -601,7 +656,7 @@ del salto `N = 1 → 2` en `25,13`). No se analizó por qué el error crece ahí
   teoremas clásicos y casi seguro que es conocida; no se buscó.
 - **Ni máquina de base 6, 10 ni 24.** Las comparaciones entre bases de §3.3 y
   §6.4 son por fórmula, no medidas.
-- **Solo backend MVL**, y Mertens solo hasta `1000₁₂ = 1728`.
+- **Solo backend MVL**, y Mertens solo hasta `5954₁₂ = 10000` (§5.4).
 - **Ni aritmética de intervalos** que permitiera un `forall` exacto para Robin.
 
 ---
@@ -612,8 +667,8 @@ del salto `N = 1 → 2` en `25,13`). No se analizó por qué el error crece ahí
 |---|---|
 | PR1 — nada sobre la verdad de la HR; la base no cambia ninguna comprobación | **Se cumple.** Todas las medidas son comprobaciones finitas conocidas, y ninguna depende de la base salvo en coste o en cómo se escribe el resultado. |
 | PR2 — `ζ(1−2k)` nunca termina en decimal; en dozenal, para un conjunto escaso de `k` (al menos 1 y 7) | **Se cumple, contaminada** (§1). Además es más fuerte de lo predicho: hay infinitos `k` y el denominador es siempre exactamente 12 (§3.2). |
-| PR3 — la clase 1 va detrás hasta 1728 | **Se cumple**: no va por delante en ningún `n`, con 50 empates en total. |
-| PR4 — `|M(n)| < √n` para `2 ≤ n ≤ 1728` | **Se cumple** en las 1.727 filas; el máximo de `M²/n` es 0,8, en `n = 5`. |
+| PR3 — la clase 1 va detrás hasta 1728 | **Se cumple**: no va por delante en ningún `n`, con 50 empates en total. Extendida a 10000 (§5.4): igual, sin empates nuevos. |
+| PR4 — `|M(n)| < √n` para `2 ≤ n ≤ 1728` | **Se cumple** en las 1.727 filas; el máximo de `M²/n` es 0,8, en `n = 5`. Extendida a 10000 (§5.4): se cumple en las 9.999. |
 | PR5 — Robin se cumple en los CA `> 5040` y falla en 5040, con márgenes de centésimas | **Se cumple**: márgenes de `0;04` a `0;09` en 12 CA, y falla en 2520 y en 5040. |
 | PR6 — los ceros finales de los CA no favorecen la base 12 frente a la 6 | **Se cumple**: la base 6 la iguala o la supera en las 14 filas. |
 | PR7 — los cinco primeros ceros con error `< 0;01` | **Falla en uno.** Cuatro ceros tienen error ≈ `0;0040`–`0;0050`; el tercero, `0;0110`. |
@@ -624,7 +679,7 @@ del salto `N = 1 → 2` en `25,13`). No se analizó por qué el error crece ahí
 
 | fecha | dónde | qué |
 |---|---|---|
-| 2026-10-09 | §8.3 | Después de las corridas se añadió al CLI una raíz entera exacta, `isqrt`, por Newton entero sobre `Dz` (`dz-int::isqrt`, solo CLI), desarrollada en una rama de trabajo e integrada en `main` el mismo día (274 tests en verde). Con ella la cota `√n` sí se puede escribir: `dz-cli exists "isqrt(EE7)-1" "EE7 % (i+2) = 0" --gates` da `holds: false` con **14.248.934** puertas frente a 819.675.170, ≈ 57 veces menos. `isqrt(EE7)` solo cuesta 531.103. Las cifras de §4–§5 se tomaron **sin** `isqrt` y no se rehicieron. |
+| 2026-10-09 | §8.3 | Después de las corridas se añadió al CLI una raíz entera exacta, `isqrt`, por Newton entero sobre `Dz` (`dz-int::isqrt`, solo CLI), desarrollada en una rama de trabajo e integrada en `main` el mismo día (274 tests en verde). Con ella la cota `√n` sí se puede escribir: `dz-cli exists "isqrt(EE7)-1" "EE7 % (i+2) = 0" --gates` da `holds: false` con **14.248.934** puertas frente a 819.675.170, ≈ 57 veces menos. `isqrt(EE7)` solo cuesta 531.103. Las cifras de §4.2–§5.3 se tomaron **sin** `isqrt` y se dejan como están; la corrida se rehízo con `isqrt` hasta 10000 en §5.4. |
 
 ---
 
@@ -642,7 +697,9 @@ recuentos de puertas son del binario. Los `.mjs` son el **oráculo externo**
 | `node 13-riemann/criterion.mjs 400` | criterio de §3.2 contra los Bernoulli exactos hasta 2k = 400 | (§3.1) | ~2 s |
 | `13-riemann/mertens.sh 1728` | nombre dozenal, primalidad (`exists`), `μ` (`valuation`), `M(n)`, `sign(n − M²)` | `mertens-1728.out` | ~1–2 h |
 | `node 13-riemann/oracle-mertens.mjs 1728` | `μ`, `M`, clases mod 12, en decimal | (contraste de §4–§5) | <1 s |
-| `node 13-riemann/compare-mertens.mjs` | contraste fila a fila de `mertens-1728.out` y estadísticas de §4–§5 | (§4.2, §5.2) | <1 s |
+| `node 13-riemann/compare-mertens.mjs [OUT N]` | contraste fila a fila de una salida de Mertens y estadísticas de §4–§5 | (§4.2, §5.2, §5.4) | <1 s |
+| `13-riemann/mertens-isqrt.sh N OUT` | como `mertens.sh`, con cota `isqrt` y columna `prime_gates`; reanudable | filas 2–2424 de `mertens-isqrt-10000.out` | — |
+| `13-riemann/mertens-witness.sh N OUT [BUDGET]` | ídem, factorizando por el testigo de `exists`; reanudable, se corta a los BUDGET s | resto de `mertens-isqrt-10000.out` | ~0,6–0,8 s por `n` |
 | `13-riemann/robin.sh` | γ, `e^γ`, `σ(n)` y razón de Robin en los CA | `robin.out` | ~3,5 min |
 | `IT=22 13-riemann/hardy-z.sh` | bisección de `Z(t)` en los cinco primeros ceros | `hardy-z.out` | ~1 h |
 | `13-riemann/hardy-z.sh eval <t> <N>` | un valor de `Z(t)` con `--gates` | — | ~7 s |
