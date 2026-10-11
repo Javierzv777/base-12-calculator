@@ -5,17 +5,25 @@ hipótesis de `planteamientos.md`. Cuatro líneas (A constantes, B lugares,
 C análisis, D dozenal) corrieron en paralelo contra el mismo protocolo, con el
 calculador de puertas de este repositorio como instrumento. Los informes
 completos están en `01-hallazgos-{A,B,C,D}-*.md`; las cifras compartidas y las
-trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `13`
-son extensiones posteriores al cierre, abiertas por preguntas del usuario sobre
-hallazgos concretos; cada una está resumida en §4.5, §4.6, §4.7, §4.8, §4.9,
-§4.10, §4.11, §4.12 y §4.13.
+trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `13`,
+`15` y `16` son extensiones posteriores al cierre, abiertas por preguntas del
+usuario sobre hallazgos concretos; cada una está resumida en §4.5 a §4.15.
+`14-pi-exponent/` es una investigación en curso con su propio `HANDOFF.md` y
+todavía no tiene resumen aquí.
 
 Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-10-09 (`13`,
 hipótesis de Riemann con la base 12 como enfoque; antes, `12`, Gödel, abierta
 por un vídeo divulgativo). Ninguna de las dos pertenece a la lista de
 "ingredientes" de `09`-`11`, que sigue siendo la abierta por la afirmación de
 Kryon sobre π: ver §4.9-§4.11 para ese contexto y §4.12-§4.13 para éstas.
-Revisión crítica aplicada: 2026-09-13 (ver §8).
+También 2026-09-25 (`15`, la frontera de la bola L₁ en n dimensiones, que
+reescribe §3.4; `16`, el paseo aleatorio D₄ frente a D₆, que da a §3.1 un
+mecanismo con contenido; resumidas en §4.14-§4.15). Se escribieron en otra
+máquina antes que `12` y `13` y se renumeraron al integrarlas; en su commit
+original se llamaban `12` y `13`. Antes, 2026-09-14 (`09`, `10` y `11`, la
+lista de "ingredientes").
+Revisión crítica aplicada: 2026-09-13 (ver §8); segunda corrección, 2026-09-25
+(§3.4, §4.14 y §8).
 
 ---
 
@@ -110,6 +118,14 @@ la geometría euclidiana se quede fuera; la estructura multiplicativa de ℂ la
 selecciona. Es casilla (I) en su forma más dura — no «L₂ es cómoda», sino «L₂
 está determinada» —, y el mérito es de ese teorema clásico, no del límite.
 
+> **Ampliación 2026-09-25 (`16`).** Hay un segundo teorema de selección, esta vez
+> aditivo y no trivial: por el TCL, la suma iterada de pasos de **cualquier**
+> geometría con varianza finita converge a una forma **cuadrática**. Con una
+> rotación de orden ≥ 3 en la simetría, esa forma es redonda (Teorema 1 de `16`).
+> El paseo en Z², cuyos pasos son la esfera unidad L₁, converge a la gaussiana
+> isótropa. π no está en ningún paso finito (`P(S₂ₙ=0) = (C(2n,n)/4ⁿ)²`,
+> racional) y aparece en el límite (`n·P → 1/π`, Wallis). Ver §4.15.
+
 La obstrucción de la que todo cuelga es más simple: `|zw|₁ ≠ |z|₁|w|₁`
 (contraejemplo `z = w = 1+i`). Sin multiplicatividad no hay forma polar; sin
 forma polar no hay mapa exponencial; y sin él se cae todo lo construido encima.
@@ -176,6 +192,19 @@ A se puso la objeción a sí misma, y conviene conservarla: las definiciones de
 área de Busemann o Holmes–Thompson podrían normalizar esto a un racional; no se
 exploraron; y elegir la definición que da el número bonito es exactamente el
 modo de fallo que el plan prohíbe. Hausdorff es la única sin parámetro libre.
+
+> **Corrección 2026-09-25 (`15`).** El enunciado general de esta sección cae
+> leído sobre Hausdorff, que es como estaba escrito. La superficie de Hausdorff
+> de la bola L₁ en dimensión `n` es `2ⁿ·√n·rⁿ⁻¹/(n−1)!`, **racional en `n = 4`**
+> (`16/3`: `dz-cli eval "2^4*sqrt(4)/(3*2*1)" --mode rational` → `14/3`) y en
+> toda `n` que sea cuadrado perfecto. El cubo L∞ de 3D tiene frontera `24r²`. Y
+> Hausdorff sí tiene un parámetro libre, la inmersión euclidiana: el octaedro
+> `{|x|+2|y|+2|z| ≤ 1}`, isométrico a `ℓ₁³`, tiene superficie **3**. El `√3` es
+> la norma euclidiana de la normal `(1,1,1)`, no una propiedad de L₁; es la misma
+> corrección que §4.7 hizo con el hexágono. Lo que sí se sostiene, y ahora como
+> teorema, es la versión invariante: en `n ≥ 3`, Busemann y Holmes–Thompson de
+> todo politopo racional están en `ω_{n−1}·ℚ` y `ℚ/ω_{n−1}`, siempre
+> trascendentes. Pero eso no es de L₁: vale para todo politopo. Detalle en §4.14.
 
 ---
 
@@ -386,7 +415,10 @@ frontera» sobre cuerpos poliédricos L₁-relacionados** (Hausdorff, Busemann y
 Holmes–Thompson —cada una sobre dos cuerpos distintos, octaedro y dodecaedro
 rómbico—, defecto angular topológico, muestreo de Cauchy finito, y Ehrhart),
 **cero éxitos rescatando racionalidad, un hallazgo estructural que no estaba en
-la lista de tareas.** Ninguna produce un racional que sea a la vez invariante
+la lista de tareas.** (*Nota 2026-09-25*: `15` muestra que los cuatro fracasos
+de Busemann/HT son instancias de un solo teorema —`S_Bus ∈ ω_k·ℚ` y
+`S_HT ∈ ℚ/ω_k` para todo politopo racional— y que el punto de partida, `4√3`,
+depende de la inmersión euclidiana; ver §4.14.) Ninguna produce un racional que sea a la vez invariante
 por isometrías, consistente con Euclides en el caso liso y genuinamente una
 medida de tamaño. Refuerza §3.4 en su forma más fuerte disponible: ninguna
 noción razonable de tamaño de frontera —métrica, topológica o proyectiva— evita
@@ -938,6 +970,73 @@ rigurosa de ceros, nada fuera de la recta (no hay complejos), Lagarias,
 Nyman–Beurling, Li, densidades de Rubinstein–Sarnak, literatura para el
 corolario de §3.2. Ver §8-§9 de `13`.
 
+### 4.14 La frontera de la bola L₁ en n dimensiones — §3.4 se reescribe
+
+Abierto por una revisión de huecos (`15-hallazgo-frontera-bola-L1-n-dimensiones.md`):
+§3.4 era un enunciado general apoyado en un solo cuerpo, y `05` ya pedía el cubo
+como segundo ejemplo. Tres comprobaciones, todas con el binario:
+
+| comprobación | resultado |
+|---|---|
+| bola L₁ en dimensión `n` (dos derivaciones independientes: símplex regular y fórmula del cono) | `S₁(n) = 2ⁿ√n·rⁿ⁻¹/(n−1)!`: racional ⟺ `n` cuadrado perfecto. 4D: `16/3` (`14/3` en el binario) |
+| cubo L∞ | `n·2ⁿ·rⁿ⁻¹`, racional siempre (`24r²` en 3D, `20` en el binario) |
+| octaedro `{\|x\|+2\|y\|+2\|z\| ≤ 1}`, isométrico a `ℓ₁³` por `diag(1,½,½)` | superficie de Hausdorff **3**, por producto vectorial y por el cono |
+
+El mecanismo es un lema: la superficie euclidiana de un politopo racional está
+en `Σ ℚ·‖a_F‖₂` (normales enteras `a_F`), así que es racional cuando las normales
+son pitagóricas. `(1,1,1,1)` tiene norma 2; `(1,2,2)`, norma 3. La irracionalidad
+de §3.4 era aritmética de sumas de cuadrados en la inmersión elegida, el mismo
+tema que `08` Prop. 4.
+
+Lo invariante sale **más fuerte** que antes. **Teorema B**: para todo politopo
+centralmente simétrico racional, o imagen lineal de uno, en `n ≥ 3`,
+`S_Bus ∈ ω_{n−1}·ℚ₊` y `S_HT ∈ ℚ₊/ω_{n−1}`, ambas trascendentes. Encajan las seis
+cifras de `03`/`04`/`07` (`16π/3`, `48/π`, `4π`, `36/π`, `5π`, `42/π`) y las
+nuevas del cubo (`6π`, y `48/π` igual que el octaedro, como exige la dualidad de
+Holmes–Thompson). Lo que `03` §5 dejaba en «plausible» es ahora un teorema para
+politopos, y no dice nada de L₁: π lo pone la bola de referencia `ω_k`.
+
+Reenunciado: *las medidas de frontera invariantes de toda norma poliédrica son
+trascendentes en `n ≥ 3`; la medida euclidiana es algebraica y su racionalidad
+depende del dibujo.* El «único caso donde L₁ empeora K(F)» lo empeora la
+inmersión, no la norma: la misma geometría da K = 4 (`4√3r²`) o K = 2 (`3r²`).
+Base 12: solo el `1/3` de `16/3 = 5;4`, casilla (III) trivial.
+
+### 4.15 Paseo aleatorio D₄ frente a D₆ — L₂ emerge al iterar, y la simetría 6 gana por un orden
+
+Abierto por la misma revisión de huecos (`16-hallazgo-paseo-aleatorio-D4-D6.md`).
+El experimento 9 (difusión) solo se había tratado en el continuo, y el
+laplaciano discreto de 4 vecinos en Z² **es** L₁.
+
+**Teorema 1** (§3.1 ampliado arriba): varianza finita más una rotación de orden
+≥ 3 dan un límite gaussiano isótropo. **Teorema 2**: una capa de vecinos
+invariante por la rotación de orden `k` tiene todos sus momentos direccionales
+de orden `< k` isótropos, porque solo admite armónicos múltiplos de `k`. D₄ llega
+al orden 2 y D₆ al 4. El cuarto cumulante por paso en Z² vale `−1/4` en el eje y
+`−1/2` en la diagonal; en la red hexagonal, `−3/8` en toda dirección (binario).
+El laplaciano discreto lo repite: `Δ + (h²/12)(∂⁴ₓ+∂⁴ᵧ)` en Z², no invariante, y
+`Δ + (h²/16)Δ²` en la hexagonal, invariante.
+
+**Predicción registrada y confirmada.** A `|x|` fijo, la anisotropía puntual
+`P(S_n=x)/P(S_n=x') − 1` (con `|x| = |x'|`) debe decaer como `n⁻³` en D₄ y como
+`n⁻⁵` en D₆. Una enumeración exacta hasta `n = 601`, en dos pares de puntos por
+red, da pendientes locales de **−2,994** y **−4,986**, monótonas hacia −3 y −5.
+El retorno hexagonal cumple `n·P → √3/(2π)` (cociente 0,99917 en `n = 601`).
+
+**Lo que cambia.** Es la primera vez en la serie que la simetría que prefiere la
+base 12 (orden 6) es también la que prefiere el **análisis**, no solo la razón
+perímetro/diámetro de §4.7. L₁ llega al 4.º orden solo si se le añade la esfera
+L∞ con peso 4:1 (el modelo D2Q9); D₆ llega sola. El techo lo pone la restricción
+cristalográfica: D₁₂ sería isótropa hasta el orden 10, pero ninguna red la tiene.
+
+**Base 12.** Los pesos isótropos a 4.º orden (D1Q3 `2/3, 1/6`; D2Q9 `4/9, 1/9,
+1/36`; D2Q7 `1/2, 1/12`) son todos 3-lisos, y es la primera familia que pasa la
+regla de poda de `01-D` §5.1 con el 3 forzado por el análisis: es la curtosis
+gaussiana, `E[X⁴] = 3σ⁴`. Tres límites, dichos en `16`: el 3 lo trae el límite
+**L₂** y no L₁; base 6 empata; y a 6.º orden (`E[X⁶] = 15σ⁶`, `15 = 3·5`) las
+constantes reticulares pasan a ser irracionales (`c² = 1 ± √(2/5)`) o no existen.
+Casilla (I)+(III). P5 sigue en pie en el espíritu.
+
 ---
 
 ## 5. Lo que la investigación aprendió sobre su propio instrumento
@@ -979,7 +1078,8 @@ veces resuelve cosas que L₂ deja sin forma cerrada (§3.3). No sobrevive nada 
 dependa de: producto interno (Plancherel, laplaciano autoadjunto), invariancia
 rotacional (Fourier radial, trigonometría), o la estructura multiplicativa de ℂ
 (§3.1). Y «π ↦ constante racional» no es un cambio, es **varios cambios
-distintos**: 4, 2 y `4√3` según la propiedad, lo que desinfla del todo la
+distintos**: 4, 2 y `4√3` según la propiedad (el `4√3` depende de la
+inmersión euclidiana y no de la norma, §4.14), lo que desinfla del todo la
 retórica de «hacer que π sea 4».
 
 **Segunda mitad: no.** La base 12 no hizo más evidente ninguna estructura
@@ -1037,6 +1137,14 @@ Para que nadie lea aquí más de lo que hay:
   `p∈(1,∞)`, tiene capacidad logarítmica racional — la familia `Lp` regaló
   racionales baratos para perímetro/diámetro (§4.7–§4.8) y no se comprobó si
   el mismo truco funciona aquí.
+- `15` demuestra el Teorema B solo para politopos. Para las bolas `Lp` lisas no
+  hay lema, y no se sabe si Busemann/HT pueden salir racionales. Tampoco se
+  calculó con el binario ningún Busemann/HT en 4D, y la dualidad de
+  Holmes–Thompson se usó como control sin rederivarla.
+- `16` es solo 2D y en doble precisión, con los exponentes de Edgeworth
+  derivados de forma esquemática. No trata la red cúbica ni la FCC en 3D, ni las
+  leyes estables (la única vía en la que L₁ sobrevive al límite, en el lado de
+  Fourier), y todo lo que contiene es casi seguro conocido (FHP 1986, D2Q9 1992).
 - La lista de «ingredientes» abierta por la reinterpretación de Kryon (§4.9,
   §4.10, §4.11) no se declaró cerrada por el usuario; puede continuar con un
   cuarto ingrediente si se retoma.
@@ -1074,5 +1182,7 @@ Lo que se corrigió, dejado visible por el mismo estándar de `07` §5.7:
 | 3.1 | el límite de Gelfand como «resultado más fuerte» | el límite es trivial por equivalencia de normas; el contenido es Ostrowski / Gelfand–Mazur | no; cambia el mérito |
 | 3.3 | `a = 2c` da un cuadrado macizo | solo con focos diagonales | no |
 | 4.1 | 3,52× | ligado a `DEFAULT_DIV_SCALE = 24` | no |
+| 3.4 | «la racionalidad no se hereda en la frontera», en general (corregido 2026-09-25, `15`) | falso con Hausdorff: racional en 4D (`16/3`), en el cubo (`24`) y en una copia isométrica del octaedro (`3`); verdadero como teorema con Busemann/HT, pero para todo politopo racional, no solo para L₁ | sí: §3.4 deja de ser un resultado sobre L₁ |
+| 4.5 | seis vías «independientes», cero éxitos | las cuatro de Busemann/HT son instancias del Teorema B de `15` | no; las explica |
 
 El veredicto de §1 sobre H₁ y el antagonismo `D₄` contra `2²·3` no cambian.

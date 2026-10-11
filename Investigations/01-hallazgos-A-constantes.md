@@ -657,6 +657,16 @@ no se elija una, la medida de Hausdorff es la única sin parámetro libre. Elegi
 la definición que dé el número bonito sería justamente el modo de fallo que el
 plan quiere evitar.
 
+> **Corrección 2026-09-25** (`15-hallazgo-frontera-bola-L1-n-dimensiones.md`).
+> La generalización de esta sección no se sostiene. Con la misma medida de
+> Hausdorff, la bola L₁ de 4D tiene frontera `(16/3)r³`, que es racional; el
+> cubo L∞ de 3D tiene `24r²`; y un octaedro isométrico a `ℓ₁³`,
+> `{|x|+2|y|+2|z| ≤ 1}`, tiene superficie 3. Hausdorff sí tiene un parámetro
+> libre, la inmersión euclidiana, y el `√3` es la norma de la normal `(1,1,1)`.
+> Las medidas invariantes (Busemann, Holmes–Thompson) son trascendentes para
+> todo politopo racional en `n ≥ 3` (Teorema B de `15`), así que tampoco son
+> una propiedad de L₁. Se deja el texto original visible.
+
 ### 7.2 `dA/dr = C` se rompe, y arreglarlo exige una segunda métrica
 
 Detallado en §2.4: `4r ≠ 8r`. El √2 eliminado reaparece exactamente cuando se

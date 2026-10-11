@@ -544,6 +544,10 @@ Un resultado positivo («se refuerza el hallazgo») no está exento.
   plausible por la misma razón estructural (`ω_k` siempre trae `π` a partir
   de `k=2`), pero «plausible» no es «verificado», y el protocolo de este
   informe exige verificación con el binario, no extrapolación.
+  *Cerrado 2026-09-25 para politopos*: `15` §4 demuestra que
+  `S_Bus ∈ ω_{n−1}·ℚ` y `S_HT ∈ ℚ/ω_{n−1}` para todo politopo racional (o
+  imagen lineal de uno), y lo comprueba en el cubo (`6π`, `48/π`). Las bolas
+  `Lp` lisas siguen abiertas.
 - **La comprobación en `k=1` (§3.1) es una comprobación de consistencia del
   aparato, no de la respuesta final.** Confirma que las fórmulas de §1
   reducen correctamente al caso sin ambigüedad y que Busemann/HT coinciden
