@@ -32,7 +32,7 @@ Antes de dar por bueno un cambio: `pwsh tools/lint-purity.ps1`.
 export PATH="$PATH:$HOME/.cargo/bin"            # bash
 $env:PATH += ";$env:USERPROFILE\.cargo\bin"     # powershell
 
-cargo test --workspace              # 274 tests, ~3,5 min en debug
+cargo test --workspace              # 276 tests, ~3,5 min en debug
 cargo test --workspace --release    # mucho más rápido (~segundos)
 cargo clippy --workspace --all-targets
 cargo run -p dz-cli                 # REPL
@@ -652,6 +652,7 @@ Detalle en `docs/10-entrada-base-10.md`.
   números publicados de `multiply`/`div_rem` sigan siendo comparables con los de
   fases anteriores.
 - `1/5` no termina en base 12; el REPL lo avisa en vez de truncar en silencio.
+- **La división en modo fijo tiene su propia escala** (`EvalConfig.div_scale` en `dz-eval`, por defecto `DEFAULT_DIV_SCALE = 24`). `dz_api::division_scale(scale) = max(24, scale)` es el único sitio donde se construye (CLI, REPL y GUI pasan por `execute`), así que `--scale N` ensancha la división solo cuando N > 24 y todo número publicado (escala por defecto ≤ 24) queda idéntico. Cubre `a/b` en modo fijo, el truncado racional→fijo del DFP y las fracciones decimales de `--input-base 10` (que se reescriben como divisiones). Las divisiones internas de las series de `dz-sci` usan su propia escala de trabajo y no se tocaron. Con `--scale 100`, un pi decimal de ~130 cifras leído con `--input-base 10` acierta 99 cifras dozenales (antes 24); `1/7` con `--scale 100` marca 3.248.981 puertas, profundidad 4.580.
 - `^` solo acepta exponentes enteros no negativos. Un exponente fraccionario se
   escribe `exp(y * ln(x))`; no se cambió el operador para no alterar el
   comportamiento (ni los tests) de la fase 5.

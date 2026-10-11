@@ -380,6 +380,14 @@ pub fn functions() -> Vec<FnInfo> {
     dz_eval::default_registry().catalog()
 }
 
+/// Fractional digits kept by division for a requested working `scale`:
+/// `max(DEFAULT_DIV_SCALE, scale)`. Division follows `--scale` only when the
+/// user asks for more than the historical 24 digits, so every number
+/// published for the default scale is unchanged.
+pub fn division_scale(scale: usize) -> usize {
+    scale.max(dz_num::DEFAULT_DIV_SCALE)
+}
+
 /// The one entry point. Builds the requested backend fresh (so a call's
 /// gate cost is measured in isolation, which is what a backend comparison
 /// wants), dispatches, formats per `mode`, and returns the cost alongside
@@ -504,6 +512,7 @@ fn execute_with<G: DozGates>(g: &G, req: &Request) -> Result<Response, ApiError>
     let config = EvalConfig {
         registry: dz_eval::default_registry(),
         scale: req.scale,
+        div_scale: division_scale(req.scale),
     };
 
     let (display, periodic_note, approximate) = match req.mode {

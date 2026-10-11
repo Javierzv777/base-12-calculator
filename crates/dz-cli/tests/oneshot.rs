@@ -111,3 +111,41 @@ fn help_and_the_function_catalog_exit_zero() {
         assert!(text.contains(expected), "catalog is missing {}", expected);
     }
 }
+
+/// First `n` fractional digits of 1/7 in base twelve by schoolbook long
+/// division, as ASCII (`X` = ten, `E` = eleven). Test oracle only.
+fn one_seventh_digits(n: usize) -> String {
+    let mut remainder = 1u32;
+    let mut out = String::new();
+    for _ in 0..n {
+        remainder *= 12;
+        out.push(char::from_digit(remainder / 7, 12).unwrap().to_ascii_uppercase());
+        remainder %= 7;
+    }
+    out.replace('A', "X").replace('B', "E")
+}
+
+fn fractional_part(line: &str) -> String {
+    line.split(';')
+        .nth(1)
+        .unwrap_or("")
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_string()
+}
+
+#[test]
+fn fixed_division_keeps_24_digits_by_default() {
+    let out = stdout(&run(&["eval", "1/7", "--mode", "fixed"]));
+    assert_eq!(fractional_part(&out), one_seventh_digits(24));
+}
+
+#[test]
+fn fixed_division_follows_scale_when_it_exceeds_24() {
+    let out = stdout(&run(&["eval", "1/7", "--mode", "fixed", "--scale", "60"]));
+    assert_eq!(fractional_part(&out), one_seventh_digits(60));
+    // A scale below 24 never shrinks division.
+    let out = stdout(&run(&["eval", "1/7", "--mode", "fixed", "--scale", "6"]));
+    assert_eq!(fractional_part(&out), one_seventh_digits(24));
+}

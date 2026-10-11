@@ -104,6 +104,11 @@ pub fn default_registry() -> &'static FnRegistry {
 pub struct EvalConfig<'r> {
     pub registry: &'r FnRegistry,
     pub scale: usize,
+    /// Fractional digits kept by user-visible division (`a/b` in fixed
+    /// mode, and the exact-rational -> fixed truncation used by DFP).
+    /// Independent of `scale`; the interfaces set it to
+    /// `max(DEFAULT_DIV_SCALE, scale)` (see `dz_api::division_scale`).
+    pub div_scale: usize,
 }
 
 impl EvalConfig<'static> {
@@ -111,6 +116,7 @@ impl EvalConfig<'static> {
         EvalConfig {
             registry: default_registry(),
             scale: dz_sci::DEFAULT_SCI_SCALE,
+            div_scale: dz_num::DEFAULT_DIV_SCALE,
         }
     }
 }
@@ -179,7 +185,7 @@ pub fn evaluate_dfp_with<G: DozGates>(
     config: &EvalConfig<'_>,
 ) -> Result<Evaluated<DzFloat>, EvalError> {
     let (exact, approximate) = eval_rational(g, expr, config)?;
-    let approx = exact.to_fixed(g, dz_num::DEFAULT_DIV_SCALE);
+    let approx = exact.to_fixed(g, config.div_scale);
     Ok(Evaluated {
         value: DzFloat::from_dzfixed(g, &approx),
         approximate,
@@ -217,7 +223,7 @@ fn eval_fixed<G: DozGates>(
         Expr::Div(a, b) => {
             let (av, aa) = eval_fixed(g, a, config)?;
             let (bv, ba) = eval_fixed(g, b, config)?;
-            Ok((av.div(g, &bv, dz_num::DEFAULT_DIV_SCALE)?, aa || ba))
+            Ok((av.div(g, &bv, config.div_scale)?, aa || ba))
         }
         Expr::Mod(a, b) => {
             let (av, aa) = eval_fixed(g, a, config)?;
@@ -472,7 +478,7 @@ mod tests {
     #[test]
     fn approximate_functions_flag_the_whole_expression() {
         let g = MvlGates::new();
-        let config = EvalConfig { registry: default_registry(), scale: 6 };
+        let config = EvalConfig { registry: default_registry(), scale: 6, div_scale: dz_num::DEFAULT_DIV_SCALE };
         let out = evaluate_rational_with(&g, &expr("sin(1) + 1"), &config)
             .expect("sin evaluates");
         assert!(out.approximate, "an expression containing sin is approximate");
@@ -484,7 +490,7 @@ mod tests {
     #[test]
     fn sqrt_of_a_perfect_square_is_reported_exact() {
         let g = MvlGates::new();
-        let config = EvalConfig { registry: default_registry(), scale: 6 };
+        let config = EvalConfig { registry: default_registry(), scale: 6, div_scale: dz_num::DEFAULT_DIV_SCALE };
         let out = evaluate_rational_with(&g, &expr("sqrt(9)"), &config).expect("sqrt evaluates");
         assert!(!out.approximate, "sqrt(9) is exactly 3");
         let expected = evaluate_rational(&g, &expr("3")).expect("literal 3");
@@ -508,7 +514,7 @@ mod tests {
     #[test]
     fn domain_errors_are_values_not_panics() {
         let g = MvlGates::new();
-        let config = EvalConfig { registry: default_registry(), scale: 4 };
+        let config = EvalConfig { registry: default_registry(), scale: 4, div_scale: dz_num::DEFAULT_DIV_SCALE };
         assert!(matches!(
             evaluate_fixed_with(&g, &expr("ln(0)"), &config),
             Err(EvalError::Domain(_))
