@@ -32,7 +32,7 @@ Antes de dar por bueno un cambio: `pwsh tools/lint-purity.ps1`.
 export PATH="$PATH:$HOME/.cargo/bin"            # bash
 $env:PATH += ";$env:USERPROFILE\.cargo\bin"     # powershell
 
-cargo test --workspace              # 276 tests, ~3,5 min en debug
+cargo test --workspace              # 277 tests, ~3,5 min en debug
 cargo test --workspace --release    # mucho más rápido (~segundos)
 cargo clippy --workspace --all-targets
 cargo run -p dz-cli                 # REPL
@@ -370,6 +370,8 @@ formateado**, no un número recompuesto). Con argumentos: una invocación
 (`dz-cli sum 1 3`, `dz-cli eval "sin(pi/4)"`, `dz-cli sqrt 2 --mode fixed`),
 alias ASCII por defecto, `--json`, `--unicode`, `--scale`, `--gates`,
 `--functions`. Códigos de salida: 0 ok, 1 error de cálculo, 2 error de uso.
+`--scale` (y `:scale` en el REPL) acepta de 1 a 410 dígitos (`MAX_SCALE` en
+`main.rs`); fuera de ese rango es error de uso.
 
 Desde la Fase 9 (`docs/06-fase9-paridad-cli.md`) el terminal tiene las mismas
 capacidades que la GUI. Un `enum Command` por encima de `Operation` despacha
