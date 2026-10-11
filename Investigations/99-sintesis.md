@@ -1054,17 +1054,24 @@ cumplen todas menos `PE3`.
   efectivo: ningún cálculo finito puede confirmarlo **ni refutarlo** (la HR, al
   menos, es refutable).
 - **Fracción continua certificada.** De las 99 cifras dozenales de π, por
-  intervalo y en racional exacto, salen 104 cocientes (`a0`-`a103`), 0
-  discrepancias con un oráculo `BigInt`; la cuenta coincide con la ley de
-  Lochs (≈ 103,7).
-- **Exponentes locales.** `λₙ = −log|π − pₙ/qₙ| / log qₙ` en 95 convergentes,
-  error ≤ 4,2·10⁻¹² frente al oráculo. Todas `> 2` (teorema clásico), el exceso
-  decrece (`λ ∈ [2,0007; 2,056]` desde `n = 41`) y los picos están antes de los
-  cocientes grandes (`a4 = 292`, `a21 = 84`, `a33 = 99`, `a79 = 161`). El máximo
-  es **22/7 (3,43)**, no 355/113 (3,20): `PE3` falla.
+  intervalo y en racional exacto, salen 104 cocientes (`a0`-`a103`); de 399
+  cifras (P3), 429; de 409, 434 (`a0`-`a433`). 0 discrepancias con un oráculo
+  `BigInt` en las tres. La de 409 certifica **`a431 = 10034₁₂ = 20776`**, el
+  cociente más grande de π en sus primeros miles.
+- **Exponentes locales.** `λₙ = −log|π − pₙ/qₙ| / log qₙ` en 430 convergentes
+  (399 cifras hasta `n = 422`, 409 para `n = 420–430`), error ≤ 1,75·10⁻¹²
+  frente al oráculo (3,9·10⁻⁹ en la última fila, medida con un corte de
+  fiabilidad más laxo). Todas `> 2` (teorema clásico), y el exceso medio sobre 2
+  decrece como ~`1/n`: 0,016 en `n = 41–100`, 0,0031 en `n = 301–422`. Los picos
+  están antes de los cocientes grandes (`a4 = 292`, `a21 = 84`, `a79 = 161`,
+  `a307 = 436` → 2,017). El cociente gigante solo da **`λ₄₃₀ = 2,0200`**: llega
+  tan tarde que `ln q₄₃₀ ≈ 497` lo diluye. El máximo sigue siendo **22/7
+  (3,43)**, no 355/113 (3,20): `PE3` falla.
 - **Lo único ligado a la base es (III) compartido.** El teorema acota las
-  rachas de cifras repetidas en el desarrollo de π, en cualquier base. En 99
-  cifras dozenales no hay rachas de 3; `max r/k = 0,154` (0,087 en base 10).
+  rachas de cifras repetidas en el desarrollo de π, en cualquier base. En 399
+  cifras dozenales hay una sola racha de 3 (`↋↋↋` tras la cifra 105) y 34 de 2
+  o más (33 esperadas al azar); `max r/k = 0,154` (0,087 en base 10), lo mismo
+  que con 99.
 - **Flint–Hills por puertas hasta `n = 2000`:** `S(2000) = 26;3841E08₁₂ ≈ 30,308`
   (oráculo: error relativo 3·10⁻⁹, por la escala 12 en `sin 355`). El término
   de 355 aporta 24,6 de los 30,3; los picos en numeradores de convergentes
@@ -1072,11 +1079,16 @@ cumplen todas menos `PE3`.
   lo que afirma el corolario, fuera del alcance formalizado; no se comprueba
   numéricamente.
 
-Efecto sobre el instrumento: ninguno nuevo en esta sesión; la escala de
-división `max(24, --scale)` (`f126e03`, otro equipo) es lo que hizo posible
-medir `|L − p/q|` a 99 cifras. Lo que no se hizo: subir el tope de `--scale`
-para más cifras (P3), comparar con `e` como control, verificar el preprint.
-Ver §8-§9 de `14`.
+Efecto sobre el instrumento: el tope de `--scale` pasa de 100 a 410
+(`MAX_SCALE` en `dz-cli`, con test); π a escala 400 tarda 686 s y da 399 cifras
+correctas, y a 410, 741 s. A esa escala la fracción continua y los `λₙ` solo fueron viables
+reformulados en enteros: un `divrem` de cociente pequeño por paso, sin
+normalizar fracciones con Euclides ni dividir a escala completa. Es otra vez la
+lección de que la división restauradora domina el coste. Antes, la escala de
+división `max(24, --scale)` (`f126e03`, otro equipo) hizo posible medir a 99
+cifras. Lo que no se hizo: comparar con `e` como control, verificar el
+preprint. Ver §8-§9 de `14`.
+
 ---
 
 ## 5. Lo que la investigación aprendió sobre su propio instrumento

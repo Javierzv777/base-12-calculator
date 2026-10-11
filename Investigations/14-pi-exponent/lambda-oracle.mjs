@@ -1,8 +1,9 @@
 // External oracle for P2: lambda_n = -ln|pi - p_n/q_n| / ln q_n with pi from
-// Machin in BigInt (300 decimal digits) and the reference CF, compared with
+// Machin in BigInt (600 decimal digits) and the reference CF, compared with
 // the instrument's convergents.out (dozenal lambda). Usage: node lambda-oracle.mjs FILE
+// Env ALL=1 prints every row (by default only n < 6 and lambda > 2.3).
 import fs from 'fs';
-const N = 300n, S = 10n**N;
+const N = 600n, S = 10n**N;
 const atanInv = x => { let t = S / x, s = t, k = 1n, x2 = x*x; while (t) { t /= x2; k += 2n; s += ((k-1n)/2n % 2n ? -1n : 1n) * (t / k); } return s; };
 const PI = 16n*atanInv(5n) - 4n*atanInv(239n);
 const lnBig = v => { const s = v.toString(); const h = Math.min(s.length, 17); return Math.log(+s.slice(0, h)) + (s.length - h) * Math.LN10; };
@@ -13,10 +14,10 @@ let worst = 0, max = [0, 0];
 for (const l of fs.readFileSync(process.argv[2], 'utf8').split(/\r?\n/)) {
   const m = l.match(/^(\d+) (\S+) (\S+) (\S+) (\S+) (\S+)$/); if (!m || m[6] === '-') continue;
   const [p, q] = [dzI(m[3]), dzI(m[4])];
-  let d = PI*q - p*S; if (d < 0n) d = -d;                     // |pi q - p| * 10^300
+  let d = PI*q - p*S; if (d < 0n) d = -d;                     // |pi q - p| * 10^N
   const lam = -(lnBig(d) - Number(N)*Math.LN10 - lnBig(q)) / lnBig(q);
   const got = dzF(m[6]); worst = Math.max(worst, Math.abs(got - lam));
   if (got > max[1]) max = [m[1], got];
-  if (+m[1] < 6 || got > 2.3) console.log(`n=${m[1]} q~10^${(lnBig(q)/Math.LN10).toFixed(1)} instr=${got.toFixed(6)} oracle=${lam.toFixed(6)}`);
+  if (+m[1] < 6 || got > 2.3 || process.env.ALL) console.log(`n=${m[1]} q~10^${(lnBig(q)/Math.LN10).toFixed(1)} instr=${got.toFixed(6)} oracle=${lam.toFixed(6)}`);
 }
 console.log(`max |instr - oracle| = ${worst.toExponential(2)}; max lambda at n=${max[0]}: ${max[1].toFixed(4)}`);
