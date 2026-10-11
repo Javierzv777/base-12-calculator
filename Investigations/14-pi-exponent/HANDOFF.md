@@ -98,8 +98,8 @@ en esta carpeta y se ejecutan desde la raíz del repo.
 |---|---|---|
 | π a escala 100 (`dz-cli eval "pi" --mode fixed --scale 100`, 26 s) | **99 cifras dozenales correctas** (contraste con Machin en `BigInt`, oráculo externo); la cifra 100 difiere por truncado | `pi-scale100.out` |
 | Rachas de `0`/`↋` en esas 99 cifras | la más larga es `↋↋` (cifras 25–26); exponente local de truncar `1 + r/k ≤ 1,25`, lejos de 2 | (cálculo con node sobre la cadena del instrumento) |
-| Fracción continua de π **certificada por intervalo** (`cf.sh`): CF de `L = π₉₉` y de `U = L + 12⁻⁹⁹` en modo racional exacto; se acepta un cociente solo si coinciden | 63+ cocientes en el momento del traspaso, todos coinciden con los conocidos (en dozenal: `a2=13` = 15, `a4=204` = 292, `a21=70` = 84, `a33=83` = 99) | `cf.out` (puede estar incompleto: ver pendientes) |
-| Sumas parciales de Flint–Hills (`flint-hills.sh 400`), modo fijo escala 12 | en curso; n = 178 al traspasar, suma `4;981X…` | `flint-hills-400.out` (parcial) |
+| Fracción continua de π **certificada por intervalo** (`cf.sh`): CF de `L = π₉₉` y de `U = L + 12⁻⁹⁹` en modo racional exacto; se acepta un cociente solo si coinciden | 76 cocientes (`a0`–`a75`) al parar la corrida, todos coinciden con los conocidos (en dozenal: `a2=13` = 15, `a4=204` = 292, `a21=70` = 84, `a33=83` = 99) | `cf.out` (puede estar incompleto: ver pendientes) |
+| Sumas parciales de Flint–Hills (`flint-hills.sh 400`), modo fijo escala 12 | parada en n = 246 (`186₁₂`), suma `4;9822E6E0…`; continuar con `flint-hills-resume.sh` | `flint-hills-400.out` (parcial) |
 | Términos "pico" de Flint–Hills (`flint-hills-spikes.sh 24`) | `n = 355 = 257₁₂` da `~20;7217X76…` (≈ 24,6), 276 M puertas | probar entero en el otro equipo |
 | Coste de π (con `4*atan(1)`, porque `pi` marca 0 puertas por estar memoizado) | escala 12: 352.713.609 puertas (2 s); 24: 1.053.849.683 (6 s); 48: 4.268.608.794 (26 s) | — |
 
@@ -158,7 +158,7 @@ rachas de cifras (§2) sobre cientos de cifras, comparando `max r/k` contra la
 cota `(1+ε)` del teorema y contra la anterior `6,103`.
 
 **P4. Flint–Hills.** (a) Terminar las sumas parciales hasta 400 si no acabaron
-aquí (`flint-hills-400.out`; el guion original no es reanudable — usar
+aquí (`flint-hills-400.out` llega a n = 246; el guion original no es reanudable — usar
 `flint-hills-resume.sh 400 Investigations/14-pi-exponent/flint-hills-400.out`,
 que continúa desde la última fila). (b) Extender a `N = 2000` o más con el
 mismo guion reanudable. (c) Correr `flint-hills-spikes.sh 24` (términos en
