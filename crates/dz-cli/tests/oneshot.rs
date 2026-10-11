@@ -149,3 +149,16 @@ fn fixed_division_follows_scale_when_it_exceeds_24() {
     let out = stdout(&run(&["eval", "1/7", "--mode", "fixed", "--scale", "6"]));
     assert_eq!(fractional_part(&out), one_seventh_digits(24));
 }
+
+#[test]
+fn scale_accepts_up_to_410_and_rejects_more() {
+    // `1+1` costs nothing extra at any scale, so the cap is checked cheaply.
+    let output = run(&["eval", "1+1", "--mode", "fixed", "--scale", "410"]);
+    assert!(output.status.success());
+    assert_eq!(stdout(&output), "2");
+    for bad in ["411", "0"] {
+        let output = run(&["eval", "1+1", "--scale", bad]);
+        assert_eq!(output.status.code(), Some(2), "--scale {bad} is a usage error");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("1 to 410"));
+    }
+}

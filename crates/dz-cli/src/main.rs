@@ -307,7 +307,10 @@ fn split_arguments(args: &[String]) -> Result<(Vec<String>, Flags), String> {
                         }
                         _ => {
                             flags.scale = parse_count(&value)
-                                .ok_or(format!("--scale needs a small number, got '{}'", value))?
+                                .ok_or(format!(
+                                    "--scale needs a number from 1 to {}, got '{}'",
+                                    MAX_SCALE, value
+                                ))?
                         }
                     }
                 }
@@ -325,13 +328,21 @@ fn split_arguments(args: &[String]) -> Result<(Vec<String>, Flags), String> {
     Ok((positional, flags))
 }
 
+/// Largest accepted `--scale`. Raised from 100 for the pi irrationality
+/// exponent study (`Investigations/14-pi-exponent/HANDOFF.md`, P3), which
+/// needs a few hundred dozenal digits of pi: 410 gives the 409 digits that
+/// certify the partial quotient a431 = 20776. Cost grows roughly cubically
+/// (pi at 400 takes ~11 min), so the cap only stops a typo from running for
+/// hours.
+const MAX_SCALE: usize = 410;
+
 /// A digit count, not a dozenal value: how many fractional digits to work
 /// to. Reading it as a native decimal number is the same category of
 /// bookkeeping as a `Vec` length (PLAN.md Section 0), and it never becomes
 /// part of a computed value.
 fn parse_count(text: &str) -> Option<usize> {
     let count: usize = text.parse().ok()?;
-    if count == 0 || count > 100 {
+    if count == 0 || count > MAX_SCALE {
         return None;
     }
     Some(count)
@@ -1272,7 +1283,7 @@ fn run_repl() {
                     session.scale = scale;
                     println!("scale = {} fractional digits", scale);
                 }
-                None => println!("scale must be a small positive number of digits"),
+                None => println!("scale must be from 1 to {} digits", MAX_SCALE),
             }
             continue;
         }
