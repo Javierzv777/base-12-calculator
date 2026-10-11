@@ -5,13 +5,15 @@ hipótesis de `planteamientos.md`. Cuatro líneas (A constantes, B lugares,
 C análisis, D dozenal) corrieron en paralelo contra el mismo protocolo, con el
 calculador de puertas de este repositorio como instrumento. Los informes
 completos están en `01-hallazgos-{A,B,C,D}-*.md`; las cifras compartidas y las
-trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `13`,
-`15` y `16` son extensiones posteriores al cierre, abiertas por preguntas del
-usuario sobre hallazgos concretos; cada una está resumida en §4.5 a §4.15.
-`14-pi-exponent/` es una investigación en curso con su propio `HANDOFF.md` y
-todavía no tiene resumen aquí.
+trampas del instrumento, en `02-referencia-medida.md`. Los documentos `03` a `16`
+son extensiones posteriores al cierre, abiertas por preguntas del usuario sobre
+hallazgos concretos; cada una está resumida en §4.5 a §4.16 (`14` en §4.16; ver
+la nota de numeración más abajo).
 
-Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-10-09 (`13`,
+Fecha de cierre: 2026-09-12. Última extensión incorporada: 2026-10-11 (`14`, el
+exponente de irracionalidad de π afirmado por un preprint de `openai/math`,
+empezado en otro equipo con `14-pi-exponent/HANDOFF.md`; resumido en §4.16
+porque §4.14 ya estaba tomado). Antes, 2026-10-09 (`13`,
 hipótesis de Riemann con la base 12 como enfoque; antes, `12`, Gödel, abierta
 por un vídeo divulgativo). Ninguna de las dos pertenece a la lista de
 "ingredientes" de `09`-`11`, que sigue siendo la abierta por la afirmación de
@@ -1037,6 +1039,44 @@ gaussiana, `E[X⁴] = 3σ⁴`. Tres límites, dichos en `16`: el 3 lo trae el l�
 constantes reticulares pasan a ser irracionales (`c² = 1 ± √(2/5)`) o no existen.
 Casilla (I)+(III). P5 sigue en pie en el espíritu.
 
+### 4.16 ¿Qué dice la base 12 del exponente de irracionalidad de π? Nada de la prueba, nada decidible, una imagen finita limpia
+
+Sexta extensión posterior al cierre (`14-hallazgo-exponente-irracionalidad-pi.md`),
+abierta por un preprint del repositorio `openai/math` (familia 017, 2026-09-24)
+que afirma `μ(π) = 2` frente a la cota publicada 7,103. Empezó en otro equipo
+(`14-pi-exponent/HANDOFF.md`) y se terminó aquí el 2026-10-11. **No se verificó
+el preprint** ni su formalización Lean; nada de lo medido depende de que sea
+cierto. Predicciones `PE1`-`PE5` registradas en el traspaso antes de medir; se
+cumplen todas menos `PE3`.
+
+- **(IV), y más fuerte que en `13`.** La prueba vive en ℂ y en geometría
+  algebraica, sin primos ni `lcm`. El enunciado es `∀ν ∃Q ∀q ≥ Q` con `Q` no
+  efectivo: ningún cálculo finito puede confirmarlo **ni refutarlo** (la HR, al
+  menos, es refutable).
+- **Fracción continua certificada.** De las 99 cifras dozenales de π, por
+  intervalo y en racional exacto, salen 104 cocientes (`a0`-`a103`), 0
+  discrepancias con un oráculo `BigInt`; la cuenta coincide con la ley de
+  Lochs (≈ 103,7).
+- **Exponentes locales.** `λₙ = −log|π − pₙ/qₙ| / log qₙ` en 95 convergentes,
+  error ≤ 4,2·10⁻¹² frente al oráculo. Todas `> 2` (teorema clásico), el exceso
+  decrece (`λ ∈ [2,0007; 2,056]` desde `n = 41`) y los picos están antes de los
+  cocientes grandes (`a4 = 292`, `a21 = 84`, `a33 = 99`, `a79 = 161`). El máximo
+  es **22/7 (3,43)**, no 355/113 (3,20): `PE3` falla.
+- **Lo único ligado a la base es (III) compartido.** El teorema acota las
+  rachas de cifras repetidas en el desarrollo de π, en cualquier base. En 99
+  cifras dozenales no hay rachas de 3; `max r/k = 0,154` (0,087 en base 10).
+- **Flint–Hills por puertas hasta `n = 2000`:** `S(2000) = 26;3841E08₁₂ ≈ 30,308`
+  (oráculo: error relativo 3·10⁻⁹, por la escala 12 en `sin 355`). El término
+  de 355 aporta 24,6 de los 30,3; los picos en numeradores de convergentes
+  valen `≈ aₙ₊₁²/(π² pₙ)` y después de 355 no pasan de 10⁻⁵. La convergencia es
+  lo que afirma el corolario, fuera del alcance formalizado; no se comprueba
+  numéricamente.
+
+Efecto sobre el instrumento: ninguno nuevo en esta sesión; la escala de
+división `max(24, --scale)` (`f126e03`, otro equipo) es lo que hizo posible
+medir `|L − p/q|` a 99 cifras. Lo que no se hizo: subir el tope de `--scale`
+para más cifras (P3), comparar con `e` como control, verificar el preprint.
+Ver §8-§9 de `14`.
 ---
 
 ## 5. Lo que la investigación aprendió sobre su propio instrumento
